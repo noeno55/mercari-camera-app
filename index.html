@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  撮影アプリ（GitHub Pages版 v1.0）
+  GAS Webアプリから移行、カメラガイド枠対応版
+  
+  【GAS版との違い】
+  ・google.script.run → fetchでGAS APIを呼び出す
+  ・iframeなしの直接表示 → カメラが使える
+  ・ガイド枠・十字線が復活
+  ============================================================
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #F8F7F4;
+  --card: #FFFFFF;
+  --primary: #E8837C;
+  --primary-dark: #D16A63;
+  --accent: #5B9BD5;
+  --text: #2D2D2D;
+  --text-sub: #8A8A8A;
+  --border: #EEEBE6;
+  --success: #6BBF7B;
+  --badge-bg: #FFF0EF;
+  --set-color: #7E57C2;
+  --set-bg: #F3E5F5;
+  --shadow: 0 2px 12px rgba(0,0,0,0.06);
+  --radius: 14px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+.header {
+  position: sticky; top: 0; z-index: 100;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: #fff; padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  box-shadow: 0 4px 20px rgba(232,131,124,0.25);
+}
+.header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+.header .count-badge {
+  background: rgba(255,255,255,0.2); border-radius: 20px;
+  padding: 4px 14px; font-size: 13px; font-weight: 600;
+}
+
+.mode-tabs { display: flex; background: var(--card); border-bottom: 2px solid var(--border); }
+.mode-tab {
+  flex: 1; padding: 12px; text-align: center;
+  font-size: 14px; font-weight: 700; color: var(--text-sub);
+  cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s;
+}
+.mode-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.mode-tab.set-tab.active { color: var(--set-color); border-bottom-color: var(--set-color); }
+
+.loading-screen {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 80px 20px;
+}
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border); border-top-color: var(--primary);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-screen p { margin-top: 16px; color: var(--text-sub); font-size: 14px; }
+
+.search-wrap { padding: 12px 16px 8px; }
+.search-box {
+  width: 100%; padding: 12px 16px 12px 40px;
+  border: 2px solid var(--border); border-radius: 12px; font-size: 15px;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238A8A8A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") 12px center no-repeat;
+  outline: none; transition: border-color 0.2s;
+}
+.search-box:focus { border-color: var(--primary); }
+
+.filter-tabs {
+  display: flex; gap: 8px; padding: 4px 16px 12px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.filter-tab {
+  flex-shrink: 0; padding: 7px 16px; border-radius: 20px;
+  border: 1.5px solid var(--border); background: var(--card);
+  font-size: 13px; font-weight: 600; color: var(--text-sub);
+  cursor: pointer; transition: all 0.2s;
+}
+.filter-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+.product-list { padding: 0 16px 100px; }
+.product-card {
+  background: var(--card); border-radius: var(--radius);
+  padding: 16px; margin-bottom: 10px; box-shadow: var(--shadow);
+  display: flex; align-items: center; gap: 14px;
+  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+  border: 2px solid transparent;
+}
+.product-card:active { transform: scale(0.98); }
+.product-card.has-photos .photo-badge { background: var(--success); color: #fff; }
+.product-card.set-card { border-left: 4px solid var(--set-color); }
+.product-card.set-card .photo-badge { background: var(--set-bg); color: var(--set-color); }
+.product-card.set-card.has-photos .photo-badge { background: var(--success); color: #fff; }
+
+.photo-badge {
+  flex-shrink: 0; width: 52px; height: 52px; border-radius: 12px;
+  background: var(--badge-bg); color: var(--primary);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; font-weight: 700;
+}
+.photo-badge .num { font-size: 20px; line-height: 1; }
+.photo-badge .label { font-size: 10px; margin-top: 2px; }
+
+.product-info { flex: 1; min-width: 0; }
+.product-info .maker { font-size: 11px; color: var(--text-sub); font-weight: 600; letter-spacing: 0.3px; }
+.product-info .name {
+  font-size: 14px; font-weight: 600; margin-top: 2px; line-height: 1.4;
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.product-info .meta { font-size: 11px; color: var(--text-sub); margin-top: 4px; }
+.product-info .meta span { margin-right: 10px; }
+.set-type-badge {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: var(--set-bg); color: var(--set-color); font-weight: 600;
+}
+.card-arrow { flex-shrink: 0; color: var(--border); font-size: 20px; }
+
+.camera-panel {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--card); border-radius: 24px 24px 0 0;
+  box-shadow: 0 -4px 30px rgba(0,0,0,0.12); z-index: 200;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  max-height: 70dvh; overflow-y: auto; transition: transform 0.3s ease;
+}
+.camera-panel.open { display: block; animation: slideUp 0.3s ease; }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.camera-panel .handle {
+  width: 40px; height: 4px; background: var(--border);
+  border-radius: 2px; margin: 0 auto 16px;
+}
+.camera-panel .selected-product {
+  background: #FFF8F7; border-radius: 12px; padding: 14px; margin-bottom: 16px;
+}
+.camera-panel .selected-product.set-selected {
+  background: #F8F0FF; border-left: 4px solid var(--set-color);
+}
+.camera-panel .selected-product .sp-maker { font-size: 11px; color: var(--text-sub); font-weight: 600; }
+.camera-panel .selected-product .sp-name { font-size: 15px; font-weight: 700; margin-top: 2px; }
+.camera-panel .selected-product .sp-count { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 6px; }
+
+.camera-actions { display: flex; flex-direction: column; gap: 10px; }
+.btn-camera {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 16px; border: none; border-radius: 14px;
+  font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.15s;
+}
+.btn-camera:active { transform: scale(0.97); }
+.btn-camera.primary { background: var(--primary); color: #fff; }
+.btn-camera.secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); }
+.btn-camera svg { width: 22px; height: 22px; }
+
+.upload-status {
+  text-align: center; padding: 12px; font-size: 14px; font-weight: 600;
+  border-radius: 10px; margin-top: 8px; display: none;
+}
+.upload-status.uploading { display: block; background: #EBF5FF; color: var(--accent); }
+.upload-status.done { display: block; background: #EEFBF0; color: var(--success); }
+.upload-status.error { display: block; background: #FFF0EF; color: #D64545; }
+
+.preview-row {
+  display: flex; gap: 8px; overflow-x: auto;
+  padding: 8px 0; margin-bottom: 8px; -webkit-overflow-scrolling: touch;
+}
+.preview-thumb {
+  flex-shrink: 0; width: 64px; height: 64px; border-radius: 10px;
+  object-fit: cover; border: 2px solid var(--border);
+}
+.preview-thumb.uploading { opacity: 0.5; }
+
+.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 190; }
+.overlay.open { display: block; }
+
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-sub); }
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state h3 { font-size: 16px; color: var(--text); margin-bottom: 8px; }
+
+.fab-refresh {
+  position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 20px;
+  width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #fff;
+  border: none; box-shadow: 0 4px 16px rgba(91,155,213,0.35);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; z-index: 150; transition: transform 0.2s;
+}
+.fab-refresh:active { transform: scale(0.9); }
+.fab-refresh svg { width: 24px; height: 24px; }
+
+.photo-modal {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+  z-index: 300; justify-content: center; align-items: center; flex-direction: column;
+}
+.photo-modal.open { display: flex; }
+.photo-modal img { max-width: 90%; max-height: 70dvh; border-radius: 8px; object-fit: contain; }
+.photo-modal .modal-actions { display: flex; gap: 16px; margin-top: 20px; }
+.photo-modal .modal-btn {
+  padding: 12px 28px; border: none; border-radius: 12px;
+  font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.photo-modal .modal-btn.delete { background: #D64545; color: #fff; }
+.photo-modal .modal-btn.close { background: rgba(255,255,255,0.2); color: #fff; }
+.photo-modal .modal-filename { color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 10px; }
+
+.existing-photos-title { font-size: 12px; color: var(--text-sub); font-weight: 600; margin-bottom: 4px; }
+.existing-thumb-wrap { position: relative; flex-shrink: 0; }
+.existing-thumb {
+  width: 64px; height: 64px; border-radius: 10px;
+  object-fit: cover; border: 2px solid var(--border); cursor: pointer;
+}
+.existing-thumb-wrap .delete-badge {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
+  border-radius: 50%; background: #D64545; color: #fff; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.loading-thumbs { font-size: 12px; color: var(--text-sub); padding: 8px 0; }
+
+#fileInput, #fileInputLibrary { display: none; }
+
+/* ============================================================
+   撮影ガイド画面（カメラ枠・十字線）
+   ============================================================ */
+
+.camera-guide-screen {
+  display: none; position: fixed; inset: 0; background: #000; z-index: 400;
+}
+.camera-guide-screen.open { display: block; }
+
+.camera-guide-video {
+  width: 100%; height: 100%; object-fit: cover;
+  position: absolute; top: 0; left: 0;
+}
+
+.camera-guide-frame-wrap {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  margin-top: -60px;
+  z-index: 10;
+}
+
+/* ガイド枠本体 */
+.camera-guide-frame {
+  width: 85vw; height: 85vw;
+  max-width: 380px; max-height: 380px;
+  border: 2.5px solid rgba(255,255,255,0.85);
+  border-radius: 16px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 十字線（縦） */
+.camera-guide-frame::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0;
+  width: 1px; height: 100%;
+  background: rgba(255,255,255,0.35);
+  transform: translateX(-50%);
+}
+
+/* 十字線（横） */
+.camera-guide-frame::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 0;
+  width: 100%; height: 1px;
+  background: rgba(255,255,255,0.35);
+  transform: translateY(-50%);
+}
+
+/* 十字の中心点 */
+.crosshair-center {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.7);
+  box-shadow: 0 0 6px rgba(255,255,255,0.5);
+}
+
+/* 四隅コーナーマーカー */
+.corner-tl, .corner-tr, .corner-bl, .corner-br {
+  position: absolute; width: 28px; height: 28px;
+  border-color: var(--primary); border-style: solid;
+}
+.corner-tl { top: -2px; left: -2px; border-width: 4px 0 0 4px; border-radius: 4px 0 0 0; }
+.corner-tr { top: -2px; right: -2px; border-width: 4px 4px 0 0; border-radius: 0 4px 0 0; }
+.corner-bl { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; border-radius: 0 0 0 4px; }
+.corner-br { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; border-radius: 0 0 4px 0; }
+
+/* ガイドメッセージ */
+.camera-guide-message {
+  color: #fff; font-size: 13px; font-weight: 600;
+  margin-top: 16px; text-align: center;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.9); line-height: 1.6;
+}
+
+/* 下部アクションボタン */
+.camera-guide-actions {
+  position: absolute;
+  bottom: calc(36px + env(safe-area-inset-bottom));
+  left: 0; right: 0;
+  display: flex; align-items: center; justify-content: center;
+  gap: 32px; padding: 0 40px; z-index: 10;
+}
+
+/* シャッターボタン */
+.btn-shutter {
+  width: 76px; height: 76px; border-radius: 50%; background: #fff;
+  border: 5px solid rgba(255,255,255,0.4);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.25), 0 4px 20px rgba(0,0,0,0.4);
+  cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; flex-shrink: 0;
+}
+.btn-shutter:active {
+  transform: scale(0.88);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.2);
+}
+
+.btn-guide-cancel, .btn-guide-library {
+  padding: 12px 20px; border-radius: 24px;
+  background: rgba(255,255,255,0.18); color: #fff;
+  border: 1.5px solid rgba(255,255,255,0.3);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+
+.shutter-flash {
+  display: none; position: fixed; inset: 0;
+  background: #fff; z-index: 500; pointer-events: none;
+}
+.shutter-flash.active {
+  display: block; animation: flash 0.25s ease-out forwards;
+}
+@keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📷 商品撮影</h1>
+  <div class="count-badge" id="headerCount">読込中...</div>
+</div>
+
+<div class="mode-tabs">
+  <div class="mode-tab active" id="modeTabSingle" onclick="switchMode('single')">📦 単品</div>
+  <div class="mode-tab set-tab" id="modeTabSet" onclick="switchMode('set')">📦 セット販売</div>
+</div>
+
+<div class="search-wrap">
+  <input type="text" class="search-box" id="searchBox" placeholder="商品名・JANコードで検索">
+</div>
+
+<div class="filter-tabs" id="filterTabs">
+  <div class="filter-tab active" data-filter="all">すべて</div>
+  <div class="filter-tab" data-filter="no-photo">📷 未撮影</div>
+  <div class="filter-tab" data-filter="has-photo">✅ 撮影済み</div>
+</div>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+  <p>リストを読み込み中...</p>
+</div>
+
+<div class="product-list" id="productList" style="display:none;"></div>
+
+<div class="empty-state" id="emptyState" style="display:none;">
+  <div class="icon">📦</div>
+  <h3>対象商品がありません</h3>
+  <p>スプレッドシートに商品を登録してから<br>もう一度お試しください</p>
+</div>
+
+<button class="fab-refresh" id="btnRefresh" title="リストを更新">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="23 4 23 10 17 10"></polyline>
+    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+  </svg>
+</button>
+
+<div class="overlay" id="overlay"></div>
+
+<div class="camera-panel" id="cameraPanel">
+  <div class="handle"></div>
+  <div class="selected-product" id="selectedProduct">
+    <div class="sp-maker" id="spMaker"></div>
+    <div class="sp-name" id="spName"></div>
+    <div class="sp-count" id="spCount"></div>
+  </div>
+  <div id="existingPhotosArea" style="display:none;">
+    <div class="existing-photos-title">📁 撮影済み画像（タップで拡大 / ✕で削除）</div>
+    <div class="preview-row" id="existingPhotosRow"></div>
+  </div>
+  <div class="preview-row" id="previewRow"></div>
+  <div class="camera-actions">
+    <button class="btn-camera primary" id="btnTakePhoto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      📷 カメラで撮影
+    </button>
+    <button class="btn-camera secondary" id="btnFromLibrary" style="border-color: var(--accent); color: var(--accent);">
+      🖼️ 写真から選ぶ
+    </button>
+    <button class="btn-camera secondary" id="btnClose">閉じる</button>
+  </div>
+  <div class="upload-status" id="uploadStatus"></div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" capture="environment" multiple>
+<input type="file" id="fileInputLibrary" accept="image/*" multiple>
+
+<div class="photo-modal" id="photoModal">
+  <img id="modalImage" src="">
+  <div class="modal-filename" id="modalFilename"></div>
+  <div class="modal-actions">
+    <button class="modal-btn delete" id="modalDeleteBtn">🗑️ 削除</button>
+    <button class="modal-btn close" id="modalCloseBtn">✕ 閉じる</button>
+  </div>
+</div>
+
+<!-- 撮影ガイド画面 -->
+<div class="camera-guide-screen" id="cameraGuideScreen">
+  <video class="camera-guide-video" id="cameraGuideVideo" autoplay playsinline muted></video>
+
+  <div class="camera-guide-frame-wrap">
+    <div class="camera-guide-frame" id="guideFrame">
+      <div class="corner-tl"></div>
+      <div class="corner-tr"></div>
+      <div class="corner-bl"></div>
+      <div class="corner-br"></div>
+      <div class="crosshair-center"></div>
+    </div>
+    <div class="camera-guide-message">
+      商品の中心を十字に合わせて<br>
+      枠いっぱいに収めてください
+    </div>
+  </div>
+
+  <div class="camera-guide-actions">
+    <button class="btn-guide-cancel" id="btnGuideCancel">キャンセル</button>
+    <button class="btn-shutter" id="btnShutter" title="シャッター"></button>
+    <button class="btn-guide-library" id="btnGuideLibrary">ライブラリ</button>
+  </div>
+</div>
+
+<div class="shutter-flash" id="shutterFlash"></div>
+<canvas id="shutterCanvas" style="display:none;"></canvas>
+
+
+<script>
+// ============================================================
+// GitHub Pages版 撮影アプリ v1.0
+// GAS APIをfetchで呼び出す
+// ============================================================
+
+// ★ GASのデプロイURL（変更しないこと）
+var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxl4FebtOlBpN78nG7tFJhfrBxpyzPyC7eA7I9_DKfeBwGxdw2ptD9pFhi6GyGxFUlN/exec';
+
+var allProducts       = [];
+var allSets           = [];
+var currentMode       = 'single';
+var currentFilter     = 'all';
+var selectedItem      = null;
+var currentPhotoCount = 0;
+var cameraStream      = null;
+
+// バックグラウンドアップロードキュー
+var uploadQueue      = [];
+var isUploading      = false;
+var uploadDoneCount  = 0;
+var uploadTotalCount = 0;
+
+// ============================================================
+// GAS API呼び出し共通関数（fetchでPOST）
+// ============================================================
+
+/**
+ * GAS APIを呼び出す
+ * @param {Object} params - { action: 'xxx', ...その他パラメータ }
+ * @return {Promise} レスポンスデータ
+ */
+function callGasApi(params) {
+  return fetch(GAS_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' }, // CORSエラー回避のためtext/plainを使用
+    body: JSON.stringify(params)
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(json) {
+    if (!json.success) throw new Error(json.error || 'APIエラー');
+    return json.data;
+  });
+}
+
+// ============================================================
+// 初期化
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadProducts();
+  document.getElementById('searchBox').addEventListener('input', renderList);
+  document.getElementById('btnRefresh').addEventListener('click', function() {
+    if (currentMode === 'single') loadProducts(); else loadSets();
+  });
+  document.getElementById('btnTakePhoto').addEventListener('click', openCamera);
+  document.getElementById('btnFromLibrary').addEventListener('click', openLibrary);
+  document.getElementById('btnClose').addEventListener('click', closePanel);
+  document.getElementById('overlay').addEventListener('click', closePanel);
+  document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+  document.getElementById('fileInputLibrary').addEventListener('change', handleFileSelect);
+  document.getElementById('modalCloseBtn').addEventListener('click', closePhotoModal);
+  document.getElementById('modalDeleteBtn').addEventListener('click', deleteCurrentPhoto);
+  document.getElementById('photoModal').addEventListener('click', function(e) {
+    if (e.target === this) closePhotoModal();
+  });
+  document.getElementById('btnShutter').addEventListener('click', takeShutterPhoto);
+  document.getElementById('btnGuideCancel').addEventListener('click', stopCamera);
+  document.getElementById('btnGuideLibrary').addEventListener('click', function() {
+    stopCamera();
+    document.getElementById('fileInputLibrary').click();
+  });
+  document.querySelectorAll('.filter-tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.filter-tab').forEach(function(t) { t.classList.remove('active'); });
+      this.classList.add('active');
+      currentFilter = this.dataset.filter;
+      renderList();
+    });
+  });
+});
+
+// ============================================================
+// モード切替・リスト読み込み
+// ============================================================
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.getElementById('modeTabSingle').classList.toggle('active', mode === 'single');
+  document.getElementById('modeTabSet').classList.toggle('active', mode === 'set');
+  document.getElementById('searchBox').value = '';
+  document.getElementById('searchBox').placeholder =
+    mode === 'single' ? '商品名・JANコードで検索' : 'セット名・セットIDで検索';
+  currentFilter = 'all';
+  document.querySelectorAll('.filter-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelector('.filter-tab[data-filter="all"]').classList.add('active');
+  if (mode === 'single') { if (allProducts.length > 0) renderList(); else loadProducts(); }
+  else { if (allSets.length > 0) renderList(); else loadSets(); }
+}
+
+function loadProducts() {
+  showLoading();
+  callGasApi({ action: 'getProductListForPhoto' })
+    .then(function(products) {
+      allProducts = products || [];
+      hideLoading();
+      if (currentMode === 'single') {
+        if (allProducts.length === 0) showEmpty('対象商品がありません', 'スプレッドシートに商品を登録してから<br>もう一度お試しください');
+        else { document.getElementById('productList').style.display = 'block'; renderList(); }
+      }
+    })
+    .catch(function(err) {
+      hideLoading();
+      showEmpty('読み込みエラー', err.message || 'リストの取得に失敗しました');
+    });
+}
+
+function loadSets() {
+  showLoading();
+  callGasApi({ action: 'getSetListForPhoto' })
+    .then(function(sets) {
+      allSets = sets || [];
+      hideLoading();
+      if (currentMode === 'set') {
+        if (allSets.length === 0) showEmpty('対象セットがありません', 'セット販売シートにセットを登録し<br>ステータスを「出品待ち」にしてください');
+        else { document.getElementById('productList').style.display = 'block'; renderList(); }
+      }
+    })
+    .catch(function(err) {
+      hideLoading();
+      showEmpty('読み込みエラー', err.message || 'セットリストの取得に失敗しました');
+    });
+}
+
+function showLoading() {
+  document.getElementById('loadingScreen').style.display = 'flex';
+  document.getElementById('productList').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'none';
+}
+function hideLoading() { document.getElementById('loadingScreen').style.display = 'none'; }
+function showEmpty(title, desc) {
+  document.getElementById('emptyState').style.display = 'block';
+  document.querySelector('#emptyState h3').textContent = title;
+  document.querySelector('#emptyState p').innerHTML = desc;
+  document.getElementById('headerCount').textContent = '0件';
+}
+
+// ============================================================
+// リスト表示
+// ============================================================
+
+function renderList() {
+  if (currentMode === 'single') renderSingleList(); else renderSetList();
+}
+
+function renderSingleList() {
+  var query = document.getElementById('searchBox').value.toLowerCase();
+  var listEl = document.getElementById('productList');
+  listEl.innerHTML = '';
+  var filtered = allProducts.filter(function(p) {
+    var matchesSearch = !query ||
+      p.productName.toLowerCase().indexOf(query) !== -1 ||
+      p.janCode.indexOf(query) !== -1 ||
+      p.maker.toLowerCase().indexOf(query) !== -1;
+    var matchesTab = currentFilter === 'all' ||
+      (currentFilter === 'no-photo' && p.photoCount === 0) ||
+      (currentFilter === 'has-photo' && p.photoCount > 0);
+    return matchesSearch && matchesTab;
+  });
+  var withPhotos = allProducts.filter(function(p) { return p.photoCount > 0; }).length;
+  document.getElementById('headerCount').textContent = withPhotos + '/' + allProducts.length + '件撮影済';
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>該当する商品がありません</h3><p>検索条件を変えてみてください</p></div>';
+    return;
+  }
+  filtered.forEach(function(product) {
+    var card = document.createElement('div');
+    card.className = 'product-card' + (product.photoCount > 0 ? ' has-photos' : '');
+    card.innerHTML =
+      '<div class="photo-badge"><span class="num">' + product.photoCount + '</span><span class="label">枚</span></div>' +
+      '<div class="product-info">' +
+        '<div class="maker">' + escapeHtml(product.maker) + '</div>' +
+        '<div class="name">' + escapeHtml(product.productName) + '</div>' +
+        '<div class="meta"><span>JAN: ' + escapeHtml(product.janCode) + '</span><span>' + escapeHtml(product.unit || '1個') + '</span><span>' + escapeHtml(product.status) + '</span></div>' +
+      '</div><div class="card-arrow">›</div>';
+    card.addEventListener('click', function() { openPanel(product); });
+    listEl.appendChild(card);
+  });
+}
+
+function renderSetList() {
+  var query = document.getElementById('searchBox').value.toLowerCase();
+  var listEl = document.getElementById('productList');
+  listEl.innerHTML = '';
+  var filtered = allSets.filter(function(s) {
+    var matchesSearch = !query ||
+      s.setName.toLowerCase().indexOf(query) !== -1 ||
+      s.setId.toLowerCase().indexOf(query) !== -1;
+    var matchesTab = currentFilter === 'all' ||
+      (currentFilter === 'no-photo' && s.photoCount === 0) ||
+      (currentFilter === 'has-photo' && s.photoCount > 0);
+    return matchesSearch && matchesTab;
+  });
+  var withPhotos = allSets.filter(function(s) { return s.photoCount > 0; }).length;
+  document.getElementById('headerCount').textContent = withPhotos + '/' + allSets.length + '件撮影済';
+  if (filtered.length === 0) {
+    listEl.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>該当するセットがありません</h3><p>検索条件を変えてみてください</p></div>';
+    return;
+  }
+  filtered.forEach(function(set) {
+    var card = document.createElement('div');
+    card.className = 'product-card set-card' + (set.photoCount > 0 ? ' has-photos' : '');
+    card.innerHTML =
+      '<div class="photo-badge"><span class="num">' + set.photoCount + '</span><span class="label">枚</span></div>' +
+      '<div class="product-info">' +
+        '<div class="maker">' + escapeHtml(set.setId) + (set.setType ? ' <span class="set-type-badge">' + escapeHtml(set.setType) + '</span>' : '') + '</div>' +
+        '<div class="name">' + escapeHtml(set.setName) + '</div>' +
+        '<div class="meta"><span>構成: ' + set.itemCount + '商品</span><span>' + escapeHtml(set.status) + '</span></div>' +
+      '</div><div class="card-arrow">›</div>';
+    card.addEventListener('click', function() { openSetPanel(set); });
+    listEl.appendChild(card);
+  });
+}
+
+// ============================================================
+// パネル開閉
+// ============================================================
+
+function openPanel(product) {
+  selectedItem = product; selectedItem._mode = 'single';
+  currentPhotoCount = product.photoCount;
+  document.getElementById('selectedProduct').classList.remove('set-selected');
+  document.getElementById('spMaker').textContent = product.maker;
+  document.getElementById('spName').textContent  = product.productName;
+  document.getElementById('spCount').textContent = '📷 撮影済み: ' + currentPhotoCount + '枚';
+  document.getElementById('previewRow').innerHTML = '';
+  document.getElementById('uploadStatus').style.display = 'none';
+  document.getElementById('uploadStatus').className = 'upload-status';
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('cameraPanel').classList.add('open');
+  loadExistingPhotos('single', product.janCode, product.row);
+}
+
+function openSetPanel(set) {
+  selectedItem = set; selectedItem._mode = 'set';
+  currentPhotoCount = set.photoCount;
+  document.getElementById('selectedProduct').classList.add('set-selected');
+  document.getElementById('spMaker').textContent = set.setId + '（' + (set.setType || 'セット') + '）';
+  document.getElementById('spName').textContent  = set.setName;
+  document.getElementById('spCount').textContent = '📷 撮影済み: ' + currentPhotoCount + '枚　構成: ' + set.itemCount + '商品';
+  document.getElementById('previewRow').innerHTML = '';
+  document.getElementById('uploadStatus').style.display = 'none';
+  document.getElementById('uploadStatus').className = 'upload-status';
+  document.getElementById('overlay').classList.add('open');
+  document.getElementById('cameraPanel').classList.add('open');
+  loadExistingPhotos('set', set.setId);
+}
+
+function closePanel() {
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('cameraPanel').classList.remove('open');
+  selectedItem = null;
+  renderList();
+}
+
+// ============================================================
+// カメラ関連（ガイド枠付き）
+// ============================================================
+
+function openCamera() {
+  if (!selectedItem) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    document.getElementById('fileInput').click();
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } }
+  }).then(function(stream) {
+    cameraStream = stream;
+    var video = document.getElementById('cameraGuideVideo');
+    video.srcObject = stream;
+    document.getElementById('cameraGuideScreen').classList.add('open');
+  }).catch(function(err) {
+    console.log('カメラ起動エラー: ' + err.message);
+    document.getElementById('fileInput').click();
+  });
+}
+
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(function(track) { track.stop(); });
+    cameraStream = null;
+  }
+  document.getElementById('cameraGuideVideo').srcObject = null;
+  document.getElementById('cameraGuideScreen').classList.remove('open');
+}
+
+/**
+ * シャッターを切る
+ * guideRatio 0.6：ガイド枠に相当する範囲をクロップ
+ * sy オフセット -0.22：中心を上にずらして下の背景を減らす
+ */
+function takeShutterPhoto() {
+  var video  = document.getElementById('cameraGuideVideo');
+  var canvas = document.getElementById('shutterCanvas');
+
+  var flash = document.getElementById('shutterFlash');
+  flash.classList.add('active');
+  setTimeout(function() { flash.classList.remove('active'); }, 300);
+
+  var vw = video.videoWidth;
+  var vh = video.videoHeight;
+
+  var guideRatio = 0.6;
+  var size = Math.min(vw, vh) * guideRatio;
+  var sx   = (vw - size) / 2;
+  var sy   = (vh - size) / 2 - (size * 0.22);
+  sy = Math.max(0, sy);
+
+  canvas.width  = size;
+  canvas.height = size;
+  canvas.getContext('2d').drawImage(video, sx, sy, size, size, 0, 0, size, size);
+
+  canvas.toBlob(function(blob) {
+    stopCamera();
+    var file = new File([blob], 'photo_' + Date.now() + '.jpg', { type: 'image/jpeg' });
+    uploadFilesSequentially([file], 0);
+  }, 'image/jpeg', 0.92);
+}
+
+function openLibrary() {
+  if (!selectedItem) return;
+  document.getElementById('fileInputLibrary').click();
+}
+
+function handleFileSelect(e) {
+  var files = e.target.files;
+  if (!files || files.length === 0) return;
+  uploadFilesSequentially(Array.from(files), 0);
+  e.target.value = '';
+}
+
+// ============================================================
+// バックグラウンドアップロードキュー
+// ============================================================
+
+function uploadFilesSequentially(files, index) {
+  for (var i = 0; i < files.length; i++) {
+    var photoNumber = currentPhotoCount + uploadTotalCount + i + 1;
+    uploadQueue.push({
+      file:        files[i],
+      photoNumber: photoNumber,
+      item:        JSON.parse(JSON.stringify(selectedItem))
+    });
+    uploadTotalCount++;
+    addPreviewThumb(files[i], true);
+  }
+  if (!isUploading) processUploadQueue();
+}
+
+function processUploadQueue() {
+  if (uploadQueue.length === 0) {
+    isUploading = false;
+    updateQueueStatus();
+    return;
+  }
+
+  isUploading  = true;
+  var job      = uploadQueue.shift();
+  var file     = job.file;
+  var item     = job.item;
+  var photoNum = job.photoNumber;
+
+  updateQueueStatus();
+
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    resizeImage(ev.target.result, 1000, function(resizedBase64) {
+      resizeImage(ev.target.result, 150, function(thumbBase64) {
+
+        var apiParams;
+        if (item._mode === 'set') {
+          apiParams = {
+            action:     'uploadSetPhoto',
+            base64Data: resizedBase64,
+            setId:      item.setId,
+            photoNumber: photoNum,
+            thumbBase64: thumbBase64
+          };
+        } else {
+          apiParams = {
+            action:     'uploadPhoto',
+            base64Data: resizedBase64,
+            janCode:    item.janCode,
+            row:        item.row,
+            photoNumber: photoNum,
+            thumbBase64: thumbBase64
+          };
+        }
+
+        callGasApi(apiParams)
+          .then(function(result) {
+            uploadDoneCount++;
+            if (result && result.success) {
+              if (selectedItem && item.janCode === selectedItem.janCode) {
+                currentPhotoCount = Math.max(currentPhotoCount, photoNum);
+                document.getElementById('spCount').textContent =
+                  '📷 撮影済み: ' + currentPhotoCount + '枚';
+                selectedItem.photoCount = currentPhotoCount;
+                var thumbs = document.querySelectorAll('.preview-thumb.uploading');
+                if (thumbs.length > 0) thumbs[0].classList.remove('uploading');
+              }
+            }
+            processUploadQueue();
+          })
+          .catch(function(err) {
+            uploadDoneCount++;
+            console.log('アップロードエラー: ' + err.message);
+            processUploadQueue();
+          });
+      });
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
+function updateQueueStatus() {
+  var remaining = uploadQueue.length;
+  var badge     = document.getElementById('headerCount');
+
+  if (isUploading || remaining > 0) {
+    var total = uploadDoneCount + remaining + (isUploading ? 1 : 0);
+    badge.textContent      = '📤 ' + uploadDoneCount + '/' + total + '枚完了';
+    badge.style.background = 'rgba(255,200,0,0.35)';
+  } else {
+    uploadDoneCount  = 0;
+    uploadTotalCount = 0;
+    badge.style.background = 'rgba(255,255,255,0.2)';
+    renderList();
+  }
+}
+
+// ============================================================
+// 画像リサイズ・プレビュー
+// ============================================================
+
+function resizeImage(dataUrl, maxSize, callback) {
+  var img = new Image();
+  img.onload = function() {
+    var w = img.width, h = img.height;
+    if (w <= maxSize && h <= maxSize) { callback(dataUrl.split(',')[1]); return; }
+    if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+    else { w = Math.round(w * maxSize / h); h = maxSize; }
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
+  };
+  img.src = dataUrl;
+}
+
+function addPreviewThumb(file, isUploadingFlag) {
+  var row = document.getElementById('previewRow');
+  var thumb = document.createElement('img');
+  thumb.className = 'preview-thumb' + (isUploadingFlag ? ' uploading' : '');
+  var reader = new FileReader();
+  reader.onload = function(e) { thumb.src = e.target.result; };
+  reader.readAsDataURL(file);
+  row.appendChild(thumb);
+  row.scrollLeft = row.scrollWidth;
+}
+
+function showUploadStatus(type, message) {
+  var el = document.getElementById('uploadStatus');
+  el.className = 'upload-status ' + type;
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+// ============================================================
+// 既存画像の表示・削除
+// ============================================================
+
+var currentExistingPhotos  = [];
+var currentModalPhotoIndex = -1;
+
+function loadExistingPhotos(mode, id, row) {
+  var area  = document.getElementById('existingPhotosArea');
+  var rowEl = document.getElementById('existingPhotosRow');
+  rowEl.innerHTML = '<div class="loading-thumbs">📁 画像を読み込み中...</div>';
+  area.style.display = 'block';
+
+  var apiParams = mode === 'set'
+    ? { action: 'getSetPhotos', setId: id }
+    : { action: 'getProductPhotos', janCode: id, row: row };
+
+  callGasApi(apiParams)
+    .then(function(photos) {
+      currentExistingPhotos = photos || [];
+      rowEl.innerHTML = '';
+      if (currentExistingPhotos.length === 0) { area.style.display = 'none'; return; }
+      currentExistingPhotos.forEach(function(photo, idx) {
+        var wrap = document.createElement('div'); wrap.className = 'existing-thumb-wrap';
+        var img = document.createElement('img');
+        img.className = 'existing-thumb'; img.src = ''; img.alt = '読込中...'; img.style.background = '#f0f0f0';
+        img.addEventListener('click', function() { openPhotoModal(idx); });
+        var badge = document.createElement('div'); badge.className = 'delete-badge'; badge.textContent = '✕';
+        badge.addEventListener('click', function(e) { e.stopPropagation(); confirmDeletePhoto(idx); });
+        wrap.appendChild(img); wrap.appendChild(badge); rowEl.appendChild(wrap);
+        // サムネイル読み込み
+        callGasApi({ action: 'getPhotoThumbnail', fileId: photo.thumbFileId || photo.fileId })
+          .then(function(dataUrl) {
+            if (dataUrl) { img.src = dataUrl; photo.thumbnailUrl = dataUrl; }
+          })
+          .catch(function() {});
+      });
+    })
+    .catch(function() { area.style.display = 'none'; });
+}
+
+function openPhotoModal(index) {
+  var photo = currentExistingPhotos[index];
+  if (!photo) return;
+  currentModalPhotoIndex = index;
+  document.getElementById('photoModal').classList.add('open');
+  if (photo.fullImageUrl) {
+    document.getElementById('modalImage').src = photo.fullImageUrl;
+    document.getElementById('modalFilename').textContent = photo.fileName;
+    return;
+  }
+  document.getElementById('modalImage').src = photo.thumbnailUrl || '';
+  document.getElementById('modalFilename').textContent = photo.fileName + '（読込中...）';
+  callGasApi({ action: 'getPhotoThumbnail', fileId: photo.fileId })
+    .then(function(dataUrl) {
+      if (dataUrl && currentModalPhotoIndex === index) {
+        photo.fullImageUrl = dataUrl;
+        document.getElementById('modalImage').src = dataUrl;
+        document.getElementById('modalFilename').textContent = photo.fileName;
+      }
+    })
+    .catch(function() {
+      document.getElementById('modalFilename').textContent = photo.fileName;
+    });
+}
+
+function closePhotoModal() {
+  document.getElementById('photoModal').classList.remove('open');
+  currentModalPhotoIndex = -1;
+}
+
+function confirmDeletePhoto(index) {
+  var photo = currentExistingPhotos[index];
+  if (!photo) return;
+  if (!confirm('「' + photo.fileName + '」を削除しますか？')) return;
+  executeDeletePhoto(index);
+}
+
+function deleteCurrentPhoto() {
+  if (currentModalPhotoIndex < 0) return;
+  var photo = currentExistingPhotos[currentModalPhotoIndex];
+  if (!photo) return;
+  if (!confirm('「' + photo.fileName + '」を削除しますか？')) return;
+  closePhotoModal();
+  executeDeletePhoto(currentModalPhotoIndex);
+}
+
+function executeDeletePhoto(index) {
+  var photo = currentExistingPhotos[index];
+  if (!photo) return;
+  callGasApi({ action: 'deletePhoto', fileId: photo.fileId })
+    .then(function(result) {
+      if (result && result.success) {
+        currentExistingPhotos.splice(index, 1);
+        currentPhotoCount = Math.max(0, currentPhotoCount - 1);
+        if (selectedItem) selectedItem.photoCount = currentPhotoCount;
+        document.getElementById('spCount').textContent = '📷 撮影済み: ' + currentPhotoCount + '枚';
+        loadExistingPhotos(
+          selectedItem._mode === 'set' ? 'set' : 'single',
+          selectedItem._mode === 'set' ? selectedItem.setId : selectedItem.janCode,
+          selectedItem.row
+        );
+        showUploadStatus('done', '🗑️ ' + result.fileName + ' を削除しました');
+      } else {
+        showUploadStatus('error', '❌ 削除エラー');
+      }
+    })
+    .catch(function(err) {
+      showUploadStatus('error', '❌ 通信エラー: ' + err.message);
+    });
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  var div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
