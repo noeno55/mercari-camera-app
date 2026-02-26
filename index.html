@@ -669,10 +669,10 @@ function takeShutterPhoto() {
 
   var vw = video.videoWidth;
   var vh = video.videoHeight;
-  var guideRatio = 0.6;
+  var guideRatio = 0.85;
   var size = Math.min(vw, vh) * guideRatio;
   var sx   = (vw - size) / 2;
-  var sy   = (vh - size) / 2 - (size * 0.22);
+  var sy   = (vh - size) / 2;
   sy = Math.max(0, sy);
 
   canvas.width  = size;
