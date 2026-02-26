@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!--
   ============================================================
-  撮影アプリ（GitHub Pages版 v2.11）
+  撮影アプリ（GitHub Pages版 v2.12）
 
-  【v2.2 → v2.11 変更点】
+  【v2.2 → v2.12 変更点】
   ・guideRatio を 0.85 → 0.6 に戻す（v1.7と同じ小さめクロップ）
   ・sy オフセット復活（- size * 0.22 で上方向にずらす）
   ・白飛び補正（applyImageCorrection）を削除
@@ -113,7 +113,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 .camera-guide-screen.open { display: block; }
 .camera-guide-video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
 .camera-guide-frame-wrap { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); margin-top: 0; z-index: 10; }
-.camera-guide-frame { width: 80vw; height: 80vw; max-width: 360px; max-height: 360px; border: 2.5px solid rgba(255,255,255,0.85); border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); position: relative; overflow: hidden; }
+.camera-guide-frame { width: 85vw; height: 85vw; max-width: 380px; max-height: 380px; border: 2.5px solid rgba(255,255,255,0.85); border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); position: relative; overflow: hidden; }
 .camera-guide-frame::before { content: ''; position: absolute; left: 50%; top: 0; width: 1px; height: 100%; background: rgba(255,255,255,0.35); transform: translateX(-50%); }
 .camera-guide-frame::after { content: ''; position: absolute; top: 50%; left: 0; width: 100%; height: 1px; background: rgba(255,255,255,0.35); transform: translateY(-50%); }
 .crosshair-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.7); box-shadow: 0 0 6px rgba(255,255,255,0.5); }
@@ -137,7 +137,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 <body>
 
 <div class="header">
-  <h1>📷 商品撮影 GitHub版 v2.11</h1>
+  <h1>撮影アプリ（GitHub Pages版 v2.12）</h1>
   <div class="count-badge" id="headerCount">読込中...</div>
 </div>
 
@@ -252,7 +252,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 
 <script>
 // ============================================================
-// GitHub Pages版 撮影アプリ v2.11
+// GitHub Pages版 撮影アプリ v2.12
 // ============================================================
 
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxl4FebtOlBpN78nG7tFJhfrBxpyzPyC7eA7I9_DKfeBwGxdw2ptD9pFhi6GyGxFUlN/exec';
@@ -623,7 +623,7 @@ function takeShutterPhoto() {
 
   var vw = video.videoWidth;
   var vh = video.videoHeight;
-  var guideRatio = 0.6;
+  var guideRatio = 0.85;
   var size = Math.min(vw, vh) * guideRatio;
   var sx   = (vw - size) / 2;
   var sy   = (vh - size) / 2;
