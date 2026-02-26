@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!--
   ============================================================
-  撮影アプリ（GitHub Pages版 v2.12）
+  撮影アプリ（GitHub Pages版 v2.16）
 
-  【v2.2 → v2.12 変更点】
+  【v2.2 → v2.16 変更点】
   ・guideRatio を 0.85 → 0.6 に戻す（v1.7と同じ小さめクロップ）
   ・sy オフセット復活（- size * 0.22 で上方向にずらす）
   ・白飛び補正（applyImageCorrection）を削除
@@ -137,7 +137,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 <body>
 
 <div class="header">
-  <h1>撮影アプリ（GitHub Pages版 v2.12）</h1>
+  <h1>撮影アプリ（GitHub Pages版 v2.16）</h1>
   <div class="count-badge" id="headerCount">読込中...</div>
 </div>
 
@@ -252,7 +252,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 
 <script>
 // ============================================================
-// GitHub Pages版 撮影アプリ v2.12
+// GitHub Pages版 撮影アプリ v2.16
 // ============================================================
 
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxl4FebtOlBpN78nG7tFJhfrBxpyzPyC7eA7I9_DKfeBwGxdw2ptD9pFhi6GyGxFUlN/exec';
@@ -623,11 +623,21 @@ function takeShutterPhoto() {
 
   var vw = video.videoWidth;
   var vh = video.videoHeight;
-  var guideRatio = 0.85;
-  var size = Math.min(vw, vh) * guideRatio;
-  var sx   = (vw - size) / 2;
-  var sy   = (vh - size) / 2;
-  sy = Math.max(0, sy);
+  // 縦持ち対応：画面上のガイド枠ピクセルをvideo座標に正確に変換
+  var screenW = video.clientWidth;   // 画面上のvideo表示幅
+  var screenH = video.clientHeight;  // 画面上のvideo表示高さ
+  var scaleX  = vw / screenW;        // video実ピクセル / 画面ピクセル
+  var scaleY  = vh / screenH;
+
+  // ガイド枠は画面の85vw正方形・中央
+  var guideScreenSize = Math.min(screenW, screenH) * 0.85;
+  var guideScreenX    = (screenW - guideScreenSize) / 2;
+  var guideScreenY    = (screenH - guideScreenSize) / 2;
+
+  // video座標に変換
+  var sx   = guideScreenX * scaleX;
+  var sy   = guideScreenY * scaleY;
+  var size = guideScreenSize * Math.min(scaleX, scaleY);
 
   canvas.width  = size;
   canvas.height = size;
