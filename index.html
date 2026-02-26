@@ -1,7 +1,11 @@
 <!DOCTYPE html>
 <!--
   ============================================================
-  撮影アプリ（GitHub Pages版 v2.0）
+  撮影アプリ（GitHub Pages版 v2.1）
+
+  【v2.0 → v2.1 変更点】
+  ・カメラ起動時の高解像度指定を削除（靄がかかる問題を修正）
+    width: { ideal: 4096 }, height: { ideal: 4096 } を削除
 
   【v1.1 → v2.0 変更点】
   ・撮影後はすぐアップせず一時保存（pendingPhotos）← v1.7機能
@@ -475,7 +479,7 @@ body {
 
 <script>
 // ============================================================
-// GitHub Pages版 撮影アプリ v2.0
+// GitHub Pages版 撮影アプリ v2.1
 // ============================================================
 
 // ★ GASのデプロイURL（変更しないこと）
@@ -918,8 +922,9 @@ function openCamera() {
     document.getElementById('fileInput').click();
     return;
   }
+  // ★ v2.1修正：高解像度指定を削除（靄がかかる問題の原因だったため）
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 4096 } }
+    video: { facingMode: { ideal: 'environment' } }
   }).then(function(stream) {
     cameraStream = stream;
     var video = document.getElementById('cameraGuideVideo');
