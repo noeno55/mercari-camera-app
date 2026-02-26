@@ -1,24 +1,15 @@
 <!DOCTYPE html>
 <!--
   ============================================================
-  撮影アプリ（GitHub Pages版 v2.1）
+  撮影アプリ（GitHub Pages版 v2.2）
+
+  【v2.1 → v2.2 変更点】
+  ・撮影画像の白飛び（モヤッと）をピクセル単位で補正
+    brightness(0.88) contrast(1.2) saturate(1.1) 相当の処理を
+    Canvas ImageData で実装（iOS Chrome/Safari 両対応）
 
   【v2.0 → v2.1 変更点】
   ・カメラ起動時の高解像度指定を削除（靄がかかる問題を修正）
-    width: { ideal: 4096 }, height: { ideal: 4096 } を削除
-
-  【v1.1 → v2.0 変更点】
-  ・撮影後はすぐアップせず一時保存（pendingPhotos）← v1.7機能
-  ・サムネの×で削除・タップで拡大確認 ← v1.7機能
-  ・「画像アップ＆編集開始」ボタンでまとめてアップ＋編集スタート ← v1.7機能
-  ・「閉じる」は破棄して閉じるだけ ← v1.7機能
-  ・連続撮影対応（カメラ画面を閉じずに何枚でも撮影可能）
-  ・GAS APIはfetchで呼び出す（カメラガイド枠対応）
-
-  【GAS版との違い】
-  ・google.script.run → fetchでGAS APIを呼び出す
-  ・iframeなしの直接表示 → カメラが使える
-  ・ガイド枠・十字線が使える
   ============================================================
 -->
 <html>
@@ -26,327 +17,119 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
 :root {
-  --bg: #F8F7F4;
-  --card: #FFFFFF;
-  --primary: #E8837C;
-  --primary-dark: #D16A63;
-  --accent: #5B9BD5;
-  --text: #2D2D2D;
-  --text-sub: #8A8A8A;
-  --border: #EEEBE6;
-  --success: #6BBF7B;
-  --badge-bg: #FFF0EF;
-  --set-color: #7E57C2;
-  --set-bg: #F3E5F5;
-  --shadow: 0 2px 12px rgba(0,0,0,0.06);
-  --radius: 14px;
+  --bg: #F8F7F4; --card: #FFFFFF; --primary: #E8837C; --primary-dark: #D16A63;
+  --accent: #5B9BD5; --text: #2D2D2D; --text-sub: #8A8A8A; --border: #EEEBE6;
+  --success: #6BBF7B; --badge-bg: #FFF0EF; --set-color: #7E57C2; --set-bg: #F3E5F5;
+  --shadow: 0 2px 12px rgba(0,0,0,0.06); --radius: 14px;
 }
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
-  background: var(--bg); color: var(--text);
-  min-height: 100dvh; overflow-x: hidden;
-}
-
-.header {
-  position: sticky; top: 0; z-index: 100;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-  color: #fff; padding: 16px 20px;
-  display: flex; align-items: center; justify-content: space-between;
-  box-shadow: 0 4px 20px rgba(232,131,124,0.25);
-}
+body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; overflow-x: hidden; }
+.header { position: sticky; top: 0; z-index: 100; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: #fff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 20px rgba(232,131,124,0.25); }
 .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
-.header .count-badge {
-  background: rgba(255,255,255,0.2); border-radius: 20px;
-  padding: 4px 14px; font-size: 13px; font-weight: 600;
-}
-
+.header .count-badge { background: rgba(255,255,255,0.2); border-radius: 20px; padding: 4px 14px; font-size: 13px; font-weight: 600; }
 .mode-tabs { display: flex; background: var(--card); border-bottom: 2px solid var(--border); }
-.mode-tab {
-  flex: 1; padding: 12px; text-align: center;
-  font-size: 14px; font-weight: 700; color: var(--text-sub);
-  cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s;
-}
+.mode-tab { flex: 1; padding: 12px; text-align: center; font-size: 14px; font-weight: 700; color: var(--text-sub); cursor: pointer; border-bottom: 3px solid transparent; transition: all 0.2s; }
 .mode-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 .mode-tab.set-tab.active { color: var(--set-color); border-bottom-color: var(--set-color); }
-
-.loading-screen {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 80px 20px;
-}
-.spinner {
-  width: 40px; height: 40px;
-  border: 3px solid var(--border); border-top-color: var(--primary);
-  border-radius: 50%; animation: spin 0.8s linear infinite;
-}
+.loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; }
+.spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-screen p { margin-top: 16px; color: var(--text-sub); font-size: 14px; }
-
 .search-wrap { padding: 12px 16px 8px; }
-.search-box {
-  width: 100%; padding: 12px 16px 12px 40px;
-  border: 2px solid var(--border); border-radius: 12px; font-size: 15px;
-  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238A8A8A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") 12px center no-repeat;
-  outline: none; transition: border-color 0.2s;
-}
+.search-box { width: 100%; padding: 12px 16px 12px 40px; border: 2px solid var(--border); border-radius: 12px; font-size: 15px; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238A8A8A' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E") 12px center no-repeat; outline: none; transition: border-color 0.2s; }
 .search-box:focus { border-color: var(--primary); }
-
-.filter-tabs {
-  display: flex; gap: 8px; padding: 4px 16px 12px;
-  overflow-x: auto; -webkit-overflow-scrolling: touch;
-}
-.filter-tab {
-  flex-shrink: 0; padding: 7px 16px; border-radius: 20px;
-  border: 1.5px solid var(--border); background: var(--card);
-  font-size: 13px; font-weight: 600; color: var(--text-sub);
-  cursor: pointer; transition: all 0.2s;
-}
+.filter-tabs { display: flex; gap: 8px; padding: 4px 16px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.filter-tab { flex-shrink: 0; padding: 7px 16px; border-radius: 20px; border: 1.5px solid var(--border); background: var(--card); font-size: 13px; font-weight: 600; color: var(--text-sub); cursor: pointer; transition: all 0.2s; }
 .filter-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-
 .product-list { padding: 0 16px 100px; }
-.product-card {
-  background: var(--card); border-radius: var(--radius);
-  padding: 16px; margin-bottom: 10px; box-shadow: var(--shadow);
-  display: flex; align-items: center; gap: 14px;
-  cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
-  border: 2px solid transparent;
-}
+.product-card { background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 10px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 14px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; border: 2px solid transparent; }
 .product-card:active { transform: scale(0.98); }
 .product-card.has-photos .photo-badge { background: var(--success); color: #fff; }
 .product-card.set-card { border-left: 4px solid var(--set-color); }
 .product-card.set-card .photo-badge { background: var(--set-bg); color: var(--set-color); }
 .product-card.set-card.has-photos .photo-badge { background: var(--success); color: #fff; }
-
-.photo-badge {
-  flex-shrink: 0; width: 52px; height: 52px; border-radius: 12px;
-  background: var(--badge-bg); color: var(--primary);
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; font-weight: 700;
-}
+.photo-badge { flex-shrink: 0; width: 52px; height: 52px; border-radius: 12px; background: var(--badge-bg); color: var(--primary); display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; }
 .photo-badge .num { font-size: 20px; line-height: 1; }
 .photo-badge .label { font-size: 10px; margin-top: 2px; }
-
 .product-info { flex: 1; min-width: 0; }
 .product-info .maker { font-size: 11px; color: var(--text-sub); font-weight: 600; letter-spacing: 0.3px; }
-.product-info .name {
-  font-size: 14px; font-weight: 600; margin-top: 2px; line-height: 1.4;
-  overflow: hidden; text-overflow: ellipsis;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-}
+.product-info .name { font-size: 14px; font-weight: 600; margin-top: 2px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .product-info .meta { font-size: 11px; color: var(--text-sub); margin-top: 4px; }
 .product-info .meta span { margin-right: 10px; }
-.set-type-badge {
-  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
-  background: var(--set-bg); color: var(--set-color); font-weight: 600;
-}
+.set-type-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--set-bg); color: var(--set-color); font-weight: 600; }
 .card-arrow { flex-shrink: 0; color: var(--border); font-size: 20px; }
-
-.camera-panel {
-  display: none; position: fixed; bottom: 0; left: 0; right: 0;
-  background: var(--card); border-radius: 24px 24px 0 0;
-  box-shadow: 0 -4px 30px rgba(0,0,0,0.12); z-index: 200;
-  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
-  max-height: 80dvh; overflow-y: auto;
-}
+.camera-panel { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-radius: 24px 24px 0 0; box-shadow: 0 -4px 30px rgba(0,0,0,0.12); z-index: 200; padding: 20px 20px calc(20px + env(safe-area-inset-bottom)); max-height: 80dvh; overflow-y: auto; }
 .camera-panel.open { display: block; animation: slideUp 0.3s ease; }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-
-.camera-panel .handle {
-  width: 40px; height: 4px; background: var(--border);
-  border-radius: 2px; margin: 0 auto 16px;
-}
-.camera-panel .selected-product {
-  background: #FFF8F7; border-radius: 12px; padding: 14px; margin-bottom: 16px;
-}
-.camera-panel .selected-product.set-selected {
-  background: #F8F0FF; border-left: 4px solid var(--set-color);
-}
+.camera-panel .handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
+.camera-panel .selected-product { background: #FFF8F7; border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+.camera-panel .selected-product.set-selected { background: #F8F0FF; border-left: 4px solid var(--set-color); }
 .camera-panel .selected-product .sp-maker { font-size: 11px; color: var(--text-sub); font-weight: 600; }
 .camera-panel .selected-product .sp-name { font-size: 15px; font-weight: 700; margin-top: 2px; }
 .camera-panel .selected-product .sp-count { font-size: 13px; color: var(--primary); font-weight: 600; margin-top: 6px; }
-
-/* 一時保存エリア */
 .pending-area { margin-bottom: 12px; display: none; }
-.pending-title {
-  font-size: 12px; color: var(--text-sub); font-weight: 600; margin-bottom: 6px;
-}
-.pending-count {
-  display: inline-block; background: var(--badge-bg); color: var(--primary);
-  font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
-}
-.pending-row {
-  display: flex; gap: 8px; overflow-x: auto;
-  padding: 4px 0 8px; -webkit-overflow-scrolling: touch;
-}
+.pending-title { font-size: 12px; color: var(--text-sub); font-weight: 600; margin-bottom: 6px; }
+.pending-count { display: inline-block; background: var(--badge-bg); color: var(--primary); font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
+.pending-row { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 8px; -webkit-overflow-scrolling: touch; }
 .pending-thumb-wrap { position: relative; flex-shrink: 0; }
-.pending-thumb {
-  width: 72px; height: 72px; border-radius: 10px;
-  object-fit: cover; border: 2px solid var(--primary); cursor: pointer;
-}
-.pending-thumb-wrap .pending-delete {
-  position: absolute; top: -7px; right: -7px;
-  width: 24px; height: 24px; border-radius: 50%;
-  background: #D64545; color: #fff; font-size: 13px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.25);
-  border: none;
-}
-
+.pending-thumb { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; border: 2px solid var(--primary); cursor: pointer; }
+.pending-thumb-wrap .pending-delete { position: absolute; top: -7px; right: -7px; width: 24px; height: 24px; border-radius: 50%; background: #D64545; color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.25); border: none; }
 .camera-actions { display: flex; flex-direction: column; gap: 10px; }
-.btn-camera {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  width: 100%; padding: 16px; border: none; border-radius: 14px;
-  font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.15s;
-}
+.btn-camera { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 16px; border: none; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
 .btn-camera:active { transform: scale(0.97); }
 .btn-camera.primary { background: var(--primary); color: #fff; }
 .btn-camera.upload { background: var(--success); color: #fff; }
 .btn-camera.secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); }
 .btn-camera svg { width: 22px; height: 22px; }
-
-.upload-status {
-  text-align: center; padding: 12px; font-size: 14px; font-weight: 600;
-  border-radius: 10px; margin-top: 8px; display: none;
-}
+.upload-status { text-align: center; padding: 12px; font-size: 14px; font-weight: 600; border-radius: 10px; margin-top: 8px; display: none; }
 .upload-status.uploading { display: block; background: #EBF5FF; color: var(--accent); }
 .upload-status.done { display: block; background: #EEFBF0; color: var(--success); }
 .upload-status.error { display: block; background: #FFF0EF; color: #D64545; }
-
 .existing-photos-title { font-size: 12px; color: var(--text-sub); font-weight: 600; margin-bottom: 4px; }
-.preview-row {
-  display: flex; gap: 8px; overflow-x: auto;
-  padding: 8px 0; margin-bottom: 8px; -webkit-overflow-scrolling: touch;
-}
+.preview-row { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; margin-bottom: 8px; -webkit-overflow-scrolling: touch; }
 .existing-thumb-wrap { position: relative; flex-shrink: 0; }
-.existing-thumb {
-  width: 64px; height: 64px; border-radius: 10px;
-  object-fit: cover; border: 2px solid var(--border); cursor: pointer;
-}
-.existing-thumb-wrap .delete-badge {
-  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px;
-  border-radius: 50%; background: #D64545; color: #fff; font-size: 12px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-}
+.existing-thumb { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; border: 2px solid var(--border); cursor: pointer; }
+.existing-thumb-wrap .delete-badge { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; background: #D64545; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
 .loading-thumbs { font-size: 12px; color: var(--text-sub); padding: 8px 0; }
-
 .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 190; }
 .overlay.open { display: block; }
-
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-sub); }
 .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
 .empty-state h3 { font-size: 16px; color: var(--text); margin-bottom: 8px; }
-
-.fab-refresh {
-  position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 20px;
-  width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #fff;
-  border: none; box-shadow: 0 4px 16px rgba(91,155,213,0.35);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; z-index: 150; transition: transform 0.2s;
-}
+.fab-refresh { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 20px; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: #fff; border: none; box-shadow: 0 4px 16px rgba(91,155,213,0.35); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 150; transition: transform 0.2s; }
 .fab-refresh:active { transform: scale(0.9); }
 .fab-refresh svg { width: 24px; height: 24px; }
-
-/* モーダル */
-.photo-modal {
-  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92);
-  z-index: 300; justify-content: center; align-items: center; flex-direction: column;
-}
+.photo-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 300; justify-content: center; align-items: center; flex-direction: column; }
 .photo-modal.open { display: flex; }
 .photo-modal img { max-width: 92%; max-height: 72dvh; border-radius: 8px; object-fit: contain; }
 .photo-modal .modal-actions { display: flex; gap: 16px; margin-top: 20px; }
-.photo-modal .modal-btn {
-  padding: 12px 28px; border: none; border-radius: 12px;
-  font-size: 15px; font-weight: 700; cursor: pointer;
-}
+.photo-modal .modal-btn { padding: 12px 28px; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
 .photo-modal .modal-btn.delete { background: #D64545; color: #fff; }
 .photo-modal .modal-btn.close { background: rgba(255,255,255,0.2); color: #fff; }
 .photo-modal .modal-filename { color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 10px; }
-
 #fileInput, #fileInputLibrary { display: none; }
-
-/* 撮影ガイド画面 */
-.camera-guide-screen {
-  display: none; position: fixed; inset: 0; background: #000; z-index: 400;
-}
+.camera-guide-screen { display: none; position: fixed; inset: 0; background: #000; z-index: 400; }
 .camera-guide-screen.open { display: block; }
-.camera-guide-video {
-  width: 100%; height: 100%; object-fit: cover;
-  position: absolute; top: 0; left: 0;
-}
-.camera-guide-frame-wrap {
-  position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%); margin-top: -60px; z-index: 10;
-}
-.camera-guide-frame {
-  width: 85vw; height: 85vw; max-width: 380px; max-height: 380px;
-  border: 2.5px solid rgba(255,255,255,0.85); border-radius: 16px;
-  box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); position: relative; overflow: hidden;
-}
-.camera-guide-frame::before {
-  content: ''; position: absolute; left: 50%; top: 0;
-  width: 1px; height: 100%; background: rgba(255,255,255,0.35); transform: translateX(-50%);
-}
-.camera-guide-frame::after {
-  content: ''; position: absolute; top: 50%; left: 0;
-  width: 100%; height: 1px; background: rgba(255,255,255,0.35); transform: translateY(-50%);
-}
-.crosshair-center {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 10px; height: 10px; border-radius: 50%;
-  background: rgba(255,255,255,0.7); box-shadow: 0 0 6px rgba(255,255,255,0.5);
-}
-.corner-tl, .corner-tr, .corner-bl, .corner-br {
-  position: absolute; width: 28px; height: 28px;
-  border-color: var(--primary); border-style: solid;
-}
+.camera-guide-video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
+.camera-guide-frame-wrap { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); margin-top: -60px; z-index: 10; }
+.camera-guide-frame { width: 85vw; height: 85vw; max-width: 380px; max-height: 380px; border: 2.5px solid rgba(255,255,255,0.85); border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); position: relative; overflow: hidden; }
+.camera-guide-frame::before { content: ''; position: absolute; left: 50%; top: 0; width: 1px; height: 100%; background: rgba(255,255,255,0.35); transform: translateX(-50%); }
+.camera-guide-frame::after { content: ''; position: absolute; top: 50%; left: 0; width: 100%; height: 1px; background: rgba(255,255,255,0.35); transform: translateY(-50%); }
+.crosshair-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.7); box-shadow: 0 0 6px rgba(255,255,255,0.5); }
+.corner-tl, .corner-tr, .corner-bl, .corner-br { position: absolute; width: 28px; height: 28px; border-color: var(--primary); border-style: solid; }
 .corner-tl { top: -2px; left: -2px; border-width: 4px 0 0 4px; border-radius: 4px 0 0 0; }
 .corner-tr { top: -2px; right: -2px; border-width: 4px 4px 0 0; border-radius: 0 4px 0 0; }
 .corner-bl { bottom: -2px; left: -2px; border-width: 0 0 4px 4px; border-radius: 0 0 0 4px; }
 .corner-br { bottom: -2px; right: -2px; border-width: 0 4px 4px 0; border-radius: 0 0 4px 0; }
-
-/* 連続撮影カウンター */
-.shutter-count {
-  position: absolute; top: -40px; left: 50%; transform: translateX(-50%);
-  background: rgba(0,0,0,0.6); color: #fff; border-radius: 20px;
-  padding: 4px 14px; font-size: 14px; font-weight: 700;
-  white-space: nowrap;
-}
-
-.camera-guide-message {
-  color: #fff; font-size: 13px; font-weight: 600; margin-top: 16px; text-align: center;
-  text-shadow: 0 1px 6px rgba(0,0,0,0.9); line-height: 1.6;
-}
-.camera-guide-actions {
-  position: absolute; bottom: calc(36px + env(safe-area-inset-bottom));
-  left: 0; right: 0; display: flex; align-items: center; justify-content: center;
-  gap: 32px; padding: 0 40px; z-index: 10;
-}
-.btn-shutter {
-  width: 76px; height: 76px; border-radius: 50%; background: #fff;
-  border: 5px solid rgba(255,255,255,0.4);
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.25), 0 4px 20px rgba(0,0,0,0.4);
-  cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; flex-shrink: 0;
-}
+.shutter-count { position: absolute; top: -40px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.6); color: #fff; border-radius: 20px; padding: 4px 14px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+.camera-guide-message { color: #fff; font-size: 13px; font-weight: 600; margin-top: 16px; text-align: center; text-shadow: 0 1px 6px rgba(0,0,0,0.9); line-height: 1.6; }
+.camera-guide-actions { position: absolute; bottom: calc(36px + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; align-items: center; justify-content: center; gap: 32px; padding: 0 40px; z-index: 10; }
+.btn-shutter { width: 76px; height: 76px; border-radius: 50%; background: #fff; border: 5px solid rgba(255,255,255,0.4); box-shadow: 0 0 0 3px rgba(255,255,255,0.25), 0 4px 20px rgba(0,0,0,0.4); cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; flex-shrink: 0; }
 .btn-shutter:active { transform: scale(0.88); box-shadow: 0 0 0 2px rgba(255,255,255,0.2); }
-.btn-guide-cancel, .btn-guide-done, .btn-guide-library {
-  padding: 12px 20px; border-radius: 24px;
-  background: rgba(255,255,255,0.18); color: #fff;
-  border: 1.5px solid rgba(255,255,255,0.3);
-  font-size: 14px; font-weight: 600; cursor: pointer;
-  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-}
-.btn-guide-done {
-  background: rgba(107,191,123,0.5); border-color: rgba(107,191,123,0.7);
-}
-.shutter-flash {
-  display: none; position: fixed; inset: 0;
-  background: #fff; z-index: 500; pointer-events: none;
-}
+.btn-guide-cancel, .btn-guide-done, .btn-guide-library { padding: 12px 20px; border-radius: 24px; background: rgba(255,255,255,0.18); color: #fff; border: 1.5px solid rgba(255,255,255,0.3); font-size: 14px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.btn-guide-done { background: rgba(107,191,123,0.5); border-color: rgba(107,191,123,0.7); }
+.shutter-flash { display: none; position: fixed; inset: 0; background: #fff; z-index: 500; pointer-events: none; }
 .shutter-flash.active { display: block; animation: flash 0.25s ease-out forwards; }
 @keyframes flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
 </style>
@@ -354,7 +137,7 @@ body {
 <body>
 
 <div class="header">
-  <h1>📷 商品撮影 GitHub版 v2.1</h1>
+  <h1>📷 商品撮影 GitHub版 v2.2</h1>
   <div class="count-badge" id="headerCount">読込中...</div>
 </div>
 
@@ -397,21 +180,15 @@ body {
 
 <div class="camera-panel" id="cameraPanel">
   <div class="handle"></div>
-
-  <!-- 商品情報 -->
   <div class="selected-product" id="selectedProduct">
     <div class="sp-maker" id="spMaker"></div>
     <div class="sp-name" id="spName"></div>
     <div class="sp-count" id="spCount"></div>
   </div>
-
-  <!-- Drive保存済み画像 -->
   <div id="existingPhotosArea" style="display:none;">
     <div class="existing-photos-title">📁 保存済み画像（タップで拡大 / ✕で削除）</div>
     <div class="preview-row" id="existingPhotosRow"></div>
   </div>
-
-  <!-- 一時保存エリア -->
   <div class="pending-area" id="pendingArea">
     <div class="pending-title">
       📸 撮影した写真<span class="pending-count" id="pendingCount">0</span>枚
@@ -419,8 +196,6 @@ body {
     </div>
     <div class="pending-row" id="pendingRow"></div>
   </div>
-
-  <!-- ボタン -->
   <div class="camera-actions">
     <button class="btn-camera primary" id="btnTakePhoto">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -443,7 +218,6 @@ body {
 <input type="file" id="fileInput" accept="image/*" capture="environment" multiple>
 <input type="file" id="fileInputLibrary" accept="image/*" multiple>
 
-<!-- モーダル -->
 <div class="photo-modal" id="photoModal">
   <img id="modalImage" src="">
   <div class="modal-filename" id="modalFilename"></div>
@@ -453,7 +227,6 @@ body {
   </div>
 </div>
 
-<!-- 撮影ガイド画面 -->
 <div class="camera-guide-screen" id="cameraGuideScreen">
   <video class="camera-guide-video" id="cameraGuideVideo" autoplay playsinline muted></video>
   <div class="camera-guide-frame-wrap">
@@ -479,10 +252,9 @@ body {
 
 <script>
 // ============================================================
-// GitHub Pages版 撮影アプリ v2.1
+// GitHub Pages版 撮影アプリ v2.2
 // ============================================================
 
-// ★ GASのデプロイURL（変更しないこと）
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxl4FebtOlBpN78nG7tFJhfrBxpyzPyC7eA7I9_DKfeBwGxdw2ptD9pFhi6GyGxFUlN/exec';
 
 var allProducts       = [];
@@ -492,25 +264,18 @@ var currentFilter     = 'all';
 var selectedItem      = null;
 var currentPhotoCount = 0;
 var cameraStream      = null;
-
-// 一時保存配列（まだDriveにアップしていない写真）
-var pendingPhotos = [];
-
-// アップロード管理
-var isUploading      = false;
-var uploadDoneCount  = 0;
-var uploadTotalCount = 0;
-
-// モーダル管理
+var pendingPhotos     = [];
+var isUploading       = false;
+var uploadDoneCount   = 0;
+var uploadTotalCount  = 0;
 var currentExistingPhotos  = [];
 var currentModalPhotoIndex = -1;
 var modalMode              = '';
 var currentPendingIndex    = -1;
 
 // ============================================================
-// GAS API呼び出し共通関数
+// GAS API
 // ============================================================
-
 function callGasApi(params) {
   return fetch(GAS_API_URL, {
     method: 'POST',
@@ -527,7 +292,6 @@ function callGasApi(params) {
 // ============================================================
 // 初期化
 // ============================================================
-
 document.addEventListener('DOMContentLoaded', function() {
   loadProducts();
   document.getElementById('searchBox').addEventListener('input', renderList);
@@ -562,14 +326,12 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================
 // モード切替・リスト
 // ============================================================
-
 function switchMode(mode) {
   currentMode = mode;
   document.getElementById('modeTabSingle').classList.toggle('active', mode === 'single');
   document.getElementById('modeTabSet').classList.toggle('active', mode === 'set');
   document.getElementById('searchBox').value = '';
-  document.getElementById('searchBox').placeholder =
-    mode === 'single' ? '商品名・JANコードで検索' : 'セット名・セットIDで検索';
+  document.getElementById('searchBox').placeholder = mode === 'single' ? '商品名・JANコードで検索' : 'セット名・セットIDで検索';
   currentFilter = 'all';
   document.querySelectorAll('.filter-tab').forEach(function(t) { t.classList.remove('active'); });
   document.querySelector('.filter-tab[data-filter="all"]').classList.add('active');
@@ -619,87 +381,48 @@ function loadSets() {
     .catch(function(err) { hideLoading(); showEmpty('読み込みエラー', err.message || 'セットリストの取得に失敗しました'); });
 }
 
-function showLoading() {
-  document.getElementById('loadingScreen').style.display = 'flex';
-  document.getElementById('productList').style.display = 'none';
-  document.getElementById('emptyState').style.display = 'none';
-}
+function showLoading() { document.getElementById('loadingScreen').style.display = 'flex'; document.getElementById('productList').style.display = 'none'; document.getElementById('emptyState').style.display = 'none'; }
 function hideLoading() { document.getElementById('loadingScreen').style.display = 'none'; }
-function showEmpty(title, desc) {
-  document.getElementById('emptyState').style.display = 'block';
-  document.querySelector('#emptyState h3').textContent = title;
-  document.querySelector('#emptyState p').innerHTML = desc;
-  document.getElementById('headerCount').textContent = '0件';
-}
-
-function renderList() {
-  if (currentMode === 'single') renderSingleList(); else renderSetList();
-}
+function showEmpty(title, desc) { document.getElementById('emptyState').style.display = 'block'; document.querySelector('#emptyState h3').textContent = title; document.querySelector('#emptyState p').innerHTML = desc; document.getElementById('headerCount').textContent = '0件'; }
+function renderList() { if (currentMode === 'single') renderSingleList(); else renderSetList(); }
 
 function renderSingleList() {
-  var query  = document.getElementById('searchBox').value.toLowerCase();
+  var query = document.getElementById('searchBox').value.toLowerCase();
   var listEl = document.getElementById('productList');
   listEl.innerHTML = '';
   var filtered = allProducts.filter(function(p) {
-    var matchesSearch = !query ||
-      p.productName.toLowerCase().indexOf(query) !== -1 ||
-      p.janCode.indexOf(query) !== -1 ||
-      p.maker.toLowerCase().indexOf(query) !== -1;
-    var matchesTab = currentFilter === 'all' ||
-      (currentFilter === 'no-photo' && p.photoCount === 0) ||
-      (currentFilter === 'has-photo' && p.photoCount > 0);
+    var matchesSearch = !query || p.productName.toLowerCase().indexOf(query) !== -1 || p.janCode.indexOf(query) !== -1 || p.maker.toLowerCase().indexOf(query) !== -1;
+    var matchesTab = currentFilter === 'all' || (currentFilter === 'no-photo' && p.photoCount === 0) || (currentFilter === 'has-photo' && p.photoCount > 0);
     return matchesSearch && matchesTab;
   });
   var withPhotos = allProducts.filter(function(p) { return p.photoCount > 0; }).length;
   document.getElementById('headerCount').textContent = withPhotos + '/' + allProducts.length + '件撮影済';
-  if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>該当する商品がありません</h3><p>検索条件を変えてみてください</p></div>';
-    return;
-  }
+  if (filtered.length === 0) { listEl.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>該当する商品がありません</h3><p>検索条件を変えてみてください</p></div>'; return; }
   filtered.forEach(function(product) {
     var card = document.createElement('div');
     card.className = 'product-card' + (product.photoCount > 0 ? ' has-photos' : '');
-    card.innerHTML =
-      '<div class="photo-badge"><span class="num">' + product.photoCount + '</span><span class="label">枚</span></div>' +
-      '<div class="product-info">' +
-        '<div class="maker">' + escapeHtml(product.maker) + '</div>' +
-        '<div class="name">' + escapeHtml(product.productName) + '</div>' +
-        '<div class="meta"><span>JAN: ' + escapeHtml(product.janCode) + '</span><span>' + escapeHtml(product.unit || '1個') + '</span><span>' + escapeHtml(product.status) + '</span></div>' +
-      '</div><div class="card-arrow">›</div>';
+    card.innerHTML = '<div class="photo-badge"><span class="num">' + product.photoCount + '</span><span class="label">枚</span></div><div class="product-info"><div class="maker">' + escapeHtml(product.maker) + '</div><div class="name">' + escapeHtml(product.productName) + '</div><div class="meta"><span>JAN: ' + escapeHtml(product.janCode) + '</span><span>' + escapeHtml(product.unit || '1個') + '</span><span>' + escapeHtml(product.status) + '</span></div></div><div class="card-arrow">›</div>';
     card.addEventListener('click', function() { openPanel(product); });
     listEl.appendChild(card);
   });
 }
 
 function renderSetList() {
-  var query  = document.getElementById('searchBox').value.toLowerCase();
+  var query = document.getElementById('searchBox').value.toLowerCase();
   var listEl = document.getElementById('productList');
   listEl.innerHTML = '';
   var filtered = allSets.filter(function(s) {
-    var matchesSearch = !query ||
-      s.setName.toLowerCase().indexOf(query) !== -1 ||
-      s.setId.toLowerCase().indexOf(query) !== -1;
-    var matchesTab = currentFilter === 'all' ||
-      (currentFilter === 'no-photo' && s.photoCount === 0) ||
-      (currentFilter === 'has-photo' && s.photoCount > 0);
+    var matchesSearch = !query || s.setName.toLowerCase().indexOf(query) !== -1 || s.setId.toLowerCase().indexOf(query) !== -1;
+    var matchesTab = currentFilter === 'all' || (currentFilter === 'no-photo' && s.photoCount === 0) || (currentFilter === 'has-photo' && s.photoCount > 0);
     return matchesSearch && matchesTab;
   });
   var withPhotos = allSets.filter(function(s) { return s.photoCount > 0; }).length;
   document.getElementById('headerCount').textContent = withPhotos + '/' + allSets.length + '件撮影済';
-  if (filtered.length === 0) {
-    listEl.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>該当するセットがありません</h3><p>検索条件を変えてみてください</p></div>';
-    return;
-  }
+  if (filtered.length === 0) { listEl.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><h3>該当するセットがありません</h3><p>検索条件を変えてみてください</p></div>'; return; }
   filtered.forEach(function(set) {
     var card = document.createElement('div');
     card.className = 'product-card set-card' + (set.photoCount > 0 ? ' has-photos' : '');
-    card.innerHTML =
-      '<div class="photo-badge"><span class="num">' + set.photoCount + '</span><span class="label">枚</span></div>' +
-      '<div class="product-info">' +
-        '<div class="maker">' + escapeHtml(set.setId) + (set.setType ? ' <span class="set-type-badge">' + escapeHtml(set.setType) + '</span>' : '') + '</div>' +
-        '<div class="name">' + escapeHtml(set.setName) + '</div>' +
-        '<div class="meta"><span>構成: ' + set.itemCount + '商品</span><span>' + escapeHtml(set.status) + '</span></div>' +
-      '</div><div class="card-arrow">›</div>';
+    card.innerHTML = '<div class="photo-badge"><span class="num">' + set.photoCount + '</span><span class="label">枚</span></div><div class="product-info"><div class="maker">' + escapeHtml(set.setId) + (set.setType ? ' <span class="set-type-badge">' + escapeHtml(set.setType) + '</span>' : '') + '</div><div class="name">' + escapeHtml(set.setName) + '</div><div class="meta"><span>構成: ' + set.itemCount + '商品</span><span>' + escapeHtml(set.status) + '</span></div></div><div class="card-arrow">›</div>';
     card.addEventListener('click', function() { openSetPanel(set); });
     listEl.appendChild(card);
   });
@@ -708,11 +431,9 @@ function renderSetList() {
 // ============================================================
 // パネル開閉
 // ============================================================
-
 function openPanel(product) {
   selectedItem = product; selectedItem._mode = 'single';
-  currentPhotoCount = product.photoCount;
-  pendingPhotos = [];
+  currentPhotoCount = product.photoCount; pendingPhotos = [];
   document.getElementById('selectedProduct').classList.remove('set-selected');
   document.getElementById('spMaker').textContent = product.maker;
   document.getElementById('spName').textContent  = product.productName;
@@ -727,8 +448,7 @@ function openPanel(product) {
 
 function openSetPanel(set) {
   selectedItem = set; selectedItem._mode = 'set';
-  currentPhotoCount = set.photoCount;
-  pendingPhotos = [];
+  currentPhotoCount = set.photoCount; pendingPhotos = [];
   document.getElementById('selectedProduct').classList.add('set-selected');
   document.getElementById('spMaker').textContent = set.setId + '（' + (set.setType || 'セット') + '）';
   document.getElementById('spName').textContent  = set.setName;
@@ -745,66 +465,37 @@ function closePanelDiscard() {
   pendingPhotos = [];
   document.getElementById('overlay').classList.remove('open');
   document.getElementById('cameraPanel').classList.remove('open');
-  selectedItem = null;
-  renderList();
+  selectedItem = null; renderList();
 }
 
 // ============================================================
 // 一時保存UI
 // ============================================================
-
 function updatePendingUI() {
-  var area      = document.getElementById('pendingArea');
-  var countEl   = document.getElementById('pendingCount');
+  var area = document.getElementById('pendingArea');
+  var countEl = document.getElementById('pendingCount');
   var uploadBtn = document.getElementById('btnUpload');
-  var row       = document.getElementById('pendingRow');
-
-  if (pendingPhotos.length === 0) {
-    area.style.display = 'none';
-    uploadBtn.style.display = 'none';
-    return;
-  }
-
-  area.style.display = 'block';
-  uploadBtn.style.display = 'flex';
+  var row = document.getElementById('pendingRow');
+  if (pendingPhotos.length === 0) { area.style.display = 'none'; uploadBtn.style.display = 'none'; return; }
+  area.style.display = 'block'; uploadBtn.style.display = 'flex';
   countEl.textContent = pendingPhotos.length;
-
   row.innerHTML = '';
   pendingPhotos.forEach(function(photo, idx) {
-    var wrap   = document.createElement('div');
-    wrap.className = 'pending-thumb-wrap';
-
-    var img = document.createElement('img');
-    img.className = 'pending-thumb';
-    img.src = photo.dataUrl;
+    var wrap = document.createElement('div'); wrap.className = 'pending-thumb-wrap';
+    var img = document.createElement('img'); img.className = 'pending-thumb'; img.src = photo.dataUrl;
     img.addEventListener('click', function() { openPendingModal(idx); });
-
-    var delBtn = document.createElement('button');
-    delBtn.className = 'pending-delete';
-    delBtn.textContent = '✕';
-    delBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      deletePendingPhoto(idx);
-    });
-
-    wrap.appendChild(img);
-    wrap.appendChild(delBtn);
-    row.appendChild(wrap);
+    var delBtn = document.createElement('button'); delBtn.className = 'pending-delete'; delBtn.textContent = '✕';
+    delBtn.addEventListener('click', function(e) { e.stopPropagation(); deletePendingPhoto(idx); });
+    wrap.appendChild(img); wrap.appendChild(delBtn); row.appendChild(wrap);
   });
-
   row.scrollLeft = row.scrollWidth;
 }
 
-function deletePendingPhoto(idx) {
-  pendingPhotos.splice(idx, 1);
-  updatePendingUI();
-}
+function deletePendingPhoto(idx) { pendingPhotos.splice(idx, 1); updatePendingUI(); }
 
 function openPendingModal(idx) {
-  var photo = pendingPhotos[idx];
-  if (!photo) return;
-  modalMode           = 'pending';
-  currentPendingIndex = idx;
+  var photo = pendingPhotos[idx]; if (!photo) return;
+  modalMode = 'pending'; currentPendingIndex = idx;
   document.getElementById('modalImage').src = photo.dataUrl;
   document.getElementById('modalFilename').textContent = '撮影プレビュー（' + (idx + 1) + '/' + pendingPhotos.length + '枚）';
   document.getElementById('modalDeleteBtn').textContent = '🗑️ この写真を削除';
@@ -812,28 +503,17 @@ function openPendingModal(idx) {
 }
 
 // ============================================================
-// 画像アップ＆編集開始
+// アップロード
 // ============================================================
-
 function startUpload() {
-  if (pendingPhotos.length === 0) return;
-  if (!selectedItem) return;
-
+  if (pendingPhotos.length === 0 || !selectedItem) return;
   var btnUpload = document.getElementById('btnUpload');
-  btnUpload.disabled = true;
-  btnUpload.textContent = '📤 アップロード中...';
-
-  isUploading      = true;
-  uploadDoneCount  = 0;
-  uploadTotalCount = pendingPhotos.length;
-
+  btnUpload.disabled = true; btnUpload.textContent = '📤 アップロード中...';
+  isUploading = true; uploadDoneCount = 0; uploadTotalCount = pendingPhotos.length;
   showUploadStatus('uploading', '📤 アップロード中... 0/' + uploadTotalCount + '枚');
-
-  var itemSnapshot   = JSON.parse(JSON.stringify(selectedItem));
+  var itemSnapshot = JSON.parse(JSON.stringify(selectedItem));
   var photosSnapshot = pendingPhotos.slice();
-  pendingPhotos      = [];
-  updatePendingUI();
-
+  pendingPhotos = []; updatePendingUI();
   uploadNextPending_(photosSnapshot, 0, itemSnapshot);
 }
 
@@ -841,42 +521,24 @@ function uploadNextPending_(photos, index, item) {
   if (index >= photos.length) {
     isUploading = false;
     var btnUpload = document.getElementById('btnUpload');
-    btnUpload.disabled = false;
-    btnUpload.style.display = 'none';
-    btnUpload.textContent = '📤 画像アップ＆編集開始';
-
+    btnUpload.disabled = false; btnUpload.style.display = 'none'; btnUpload.textContent = '📤 画像アップ＆編集開始';
     showUploadStatus('done', '✅ ' + photos.length + '枚アップ完了！編集を開始しました');
-
-    // Cloudinary編集をGAS側でトリガー起動
-    callGasApi({
-      action: 'triggerProcessingForItem',
-      id:     item._mode === 'set' ? item.setId : item.janCode,
-      mode:   item._mode
-    }).catch(function(e) { console.log('編集トリガーエラー: ' + e.message); });
-
-    setTimeout(function() {
-      if (currentMode === 'single') loadProductsForce(); else loadSets();
-    }, 1500);
+    callGasApi({ action: 'triggerProcessingForItem', id: item._mode === 'set' ? item.setId : item.janCode, mode: item._mode }).catch(function(e) { console.log('編集トリガーエラー: ' + e.message); });
+    setTimeout(function() { if (currentMode === 'single') loadProductsForce(); else loadSets(); }, 1500);
     return;
   }
-
-  var photo    = photos[index];
+  var photo = photos[index];
   var photoNum = currentPhotoCount + index + 1;
-
   showUploadStatus('uploading', '📤 アップロード中... ' + (index + 1) + '/' + photos.length + '枚');
-
   var base64 = photo.dataUrl.indexOf(',') !== -1 ? photo.dataUrl.split(',')[1] : photo.dataUrl;
-
   resizeBase64(base64, 1500, function(resizedBase64) {
     resizeBase64(base64, 150, function(thumbBase64) {
-
       var apiParams;
       if (item._mode === 'set') {
         apiParams = { action: 'uploadSetPhoto', base64Data: resizedBase64, setId: item.setId, photoNumber: photoNum, thumbBase64: thumbBase64 };
       } else {
         apiParams = { action: 'uploadPhoto', base64Data: resizedBase64, janCode: item.janCode, row: item.row, photoNumber: photoNum, thumbBase64: thumbBase64 };
       }
-
       callGasApi(apiParams)
         .then(function(result) {
           uploadDoneCount++;
@@ -888,11 +550,7 @@ function uploadNextPending_(photos, index, item) {
           }
           uploadNextPending_(photos, index + 1, item);
         })
-        .catch(function(err) {
-          uploadDoneCount++;
-          console.log('アップロードエラー: ' + err.message);
-          uploadNextPending_(photos, index + 1, item);
-        });
+        .catch(function(err) { uploadDoneCount++; console.log('アップロードエラー: ' + err.message); uploadNextPending_(photos, index + 1, item); });
     });
   });
 }
@@ -902,10 +560,8 @@ function resizeBase64(base64, maxSize, callback) {
   img.onload = function() {
     var w = img.width, h = img.height;
     if (w <= maxSize && h <= maxSize) { callback(base64); return; }
-    if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
-    else       { w = Math.round(w * maxSize / h); h = maxSize; }
-    var canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
+    if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; } else { w = Math.round(w * maxSize / h); h = maxSize; }
+    var canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
     callback(canvas.toDataURL('image/jpeg', 1.0).split(',')[1]);
   };
@@ -913,16 +569,59 @@ function resizeBase64(base64, maxSize, callback) {
 }
 
 // ============================================================
+// ★ v2.2 白飛び補正：ピクセル単位で明るさ・コントラスト・彩度を調整
+// iOS Canvas でも確実に動作する方式
+// brightness: 0.88（少し暗く）contrast: 1.2（コントラスト強く）saturation: 1.1（少し鮮やかに）
+// ============================================================
+function applyImageCorrection(ctx, width, height) {
+  var imageData = ctx.getImageData(0, 0, width, height);
+  var data = imageData.data;
+
+  var brightness = 0.88;  // 1.0 = 変化なし、小さいほど暗く
+  var contrast   = 1.2;   // 1.0 = 変化なし、大きいほど強く
+  var saturation = 1.1;   // 1.0 = 変化なし、大きいほど鮮やかに
+
+  var contrastOffset = 128 * (1 - contrast);
+
+  for (var i = 0; i < data.length; i += 4) {
+    var r = data[i];
+    var g = data[i + 1];
+    var b = data[i + 2];
+
+    // 明るさ補正
+    r = r * brightness;
+    g = g * brightness;
+    b = b * brightness;
+
+    // コントラスト補正
+    r = r * contrast + contrastOffset;
+    g = g * contrast + contrastOffset;
+    b = b * contrast + contrastOffset;
+
+    // 彩度補正（グレースケール値から差分を拡大）
+    var gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    r = gray + (r - gray) * saturation;
+    g = gray + (g - gray) * saturation;
+    b = gray + (b - gray) * saturation;
+
+    // 0〜255 にクランプ
+    data[i]     = Math.max(0, Math.min(255, r));
+    data[i + 1] = Math.max(0, Math.min(255, g));
+    data[i + 2] = Math.max(0, Math.min(255, b));
+    // data[i + 3] はアルファ値なので変更しない
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
+// ============================================================
 // カメラ関連（連続撮影対応）
 // ============================================================
-
 function openCamera() {
   if (!selectedItem) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    document.getElementById('fileInput').click();
-    return;
+    document.getElementById('fileInput').click(); return;
   }
-  // ★ v2.1修正：高解像度指定を削除（靄がかかる問題の原因だったため）
   navigator.mediaDevices.getUserMedia({
     video: { facingMode: { ideal: 'environment' } }
   }).then(function(stream) {
@@ -938,10 +637,7 @@ function openCamera() {
 }
 
 function stopCamera() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(function(track) { track.stop(); });
-    cameraStream = null;
-  }
+  if (cameraStream) { cameraStream.getTracks().forEach(function(track) { track.stop(); }); cameraStream = null; }
   document.getElementById('cameraGuideVideo').srcObject = null;
   document.getElementById('cameraGuideScreen').classList.remove('open');
   document.getElementById('btnGuideDone').style.display = 'none';
@@ -954,18 +650,12 @@ function updateShutterCount() {
   var totalPending = pendingPhotos.length;
   var countEl = document.getElementById('shutterCount');
   var doneBtn = document.getElementById('btnGuideDone');
-  var cancelBtn = document.getElementById('btnGuideCancel');
-
   if (totalPending > 0) {
-    countEl.style.display = 'block';
-    countEl.textContent = '📸 ' + totalPending + '枚撮影済み';
+    countEl.style.display = 'block'; countEl.textContent = '📸 ' + totalPending + '枚撮影済み';
     doneBtn.style.display = 'block';
-    cancelBtn.textContent = 'キャンセル';
     document.getElementById('guideMessage').innerHTML = 'そのまま続けて撮影できます<br>終わったら「完了」をタップ';
   } else {
-    countEl.style.display = 'none';
-    doneBtn.style.display = 'none';
-    cancelBtn.textContent = 'キャンセル';
+    countEl.style.display = 'none'; doneBtn.style.display = 'none';
   }
 }
 
@@ -987,135 +677,94 @@ function takeShutterPhoto() {
 
   canvas.width  = size;
   canvas.height = size;
-  canvas.getContext('2d').drawImage(video, sx, sy, size, size, 0, 0, size, size);
+  var ctx = canvas.getContext('2d');
+  ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+
+  // ★ v2.2 白飛び補正をピクセル単位で適用
+  applyImageCorrection(ctx, size, size);
 
   canvas.toBlob(function(blob) {
-    // ★ カメラを閉じずに一時保存（連続撮影）
     var reader = new FileReader();
     reader.onload = function(e) {
       pendingPhotos.push({ dataUrl: e.target.result });
       updatePendingUI();
-      updateShutterCount(); // カウンター更新
+      updateShutterCount();
     };
     reader.readAsDataURL(blob);
   }, 'image/jpeg', 1.0);
 }
 
-function openLibrary() {
-  if (!selectedItem) return;
-  document.getElementById('fileInputLibrary').click();
-}
+function openLibrary() { if (!selectedItem) return; document.getElementById('fileInputLibrary').click(); }
 
 function handleFileSelect(e) {
-  var files = e.target.files;
-  if (!files || files.length === 0) return;
+  var files = e.target.files; if (!files || files.length === 0) return;
   Array.from(files).forEach(function(file) {
     var reader = new FileReader();
-    reader.onload = function(ev) {
-      pendingPhotos.push({ dataUrl: ev.target.result });
-      updatePendingUI();
-    };
+    reader.onload = function(ev) { pendingPhotos.push({ dataUrl: ev.target.result }); updatePendingUI(); };
     reader.readAsDataURL(file);
   });
   e.target.value = '';
 }
 
 // ============================================================
-// 既存写真（Drive保存済み）
+// 既存写真
 // ============================================================
-
 function loadExistingPhotos(mode, id, row) {
-  var area  = document.getElementById('existingPhotosArea');
+  var area = document.getElementById('existingPhotosArea');
   var rowEl = document.getElementById('existingPhotosRow');
   rowEl.innerHTML = '<div class="loading-thumbs">📁 画像を読み込み中...</div>';
   area.style.display = 'block';
-
-  var apiParams = mode === 'set'
-    ? { action: 'getSetPhotos', setId: id }
-    : { action: 'getProductPhotos', janCode: id, row: row };
-
+  var apiParams = mode === 'set' ? { action: 'getSetPhotos', setId: id } : { action: 'getProductPhotos', janCode: id, row: row };
   callGasApi(apiParams)
     .then(function(photos) {
-      currentExistingPhotos = photos || [];
-      rowEl.innerHTML = '';
+      currentExistingPhotos = photos || []; rowEl.innerHTML = '';
       if (currentExistingPhotos.length === 0) { area.style.display = 'none'; return; }
       currentExistingPhotos.forEach(function(photo, idx) {
-        var wrap  = document.createElement('div'); wrap.className = 'existing-thumb-wrap';
-        var img   = document.createElement('img');
-        img.className = 'existing-thumb'; img.src = ''; img.alt = '読込中...'; img.style.background = '#f0f0f0';
+        var wrap = document.createElement('div'); wrap.className = 'existing-thumb-wrap';
+        var img = document.createElement('img'); img.className = 'existing-thumb'; img.src = ''; img.alt = '読込中...'; img.style.background = '#f0f0f0';
         img.addEventListener('click', function() { openExistingModal(idx); });
         var badge = document.createElement('div'); badge.className = 'delete-badge'; badge.textContent = '✕';
         badge.addEventListener('click', function(ev) { ev.stopPropagation(); confirmDeletePhoto(idx); });
         wrap.appendChild(img); wrap.appendChild(badge); rowEl.appendChild(wrap);
         callGasApi({ action: 'getPhotoThumbnail', fileId: photo.thumbFileId || photo.fileId })
-          .then(function(dataUrl) {
-            if (dataUrl) { img.src = dataUrl; photo.thumbnailUrl = dataUrl; }
-          }).catch(function() {});
+          .then(function(dataUrl) { if (dataUrl) { img.src = dataUrl; photo.thumbnailUrl = dataUrl; } }).catch(function() {});
       });
     })
     .catch(function() { area.style.display = 'none'; });
 }
 
 function openExistingModal(index) {
-  var photo = currentExistingPhotos[index];
-  if (!photo) return;
-  modalMode              = 'existing';
-  currentModalPhotoIndex = index;
-  currentPendingIndex    = -1;
+  var photo = currentExistingPhotos[index]; if (!photo) return;
+  modalMode = 'existing'; currentModalPhotoIndex = index; currentPendingIndex = -1;
   document.getElementById('modalDeleteBtn').textContent = '🗑️ 削除';
   document.getElementById('photoModal').classList.add('open');
-  if (photo.fullImageUrl) {
-    document.getElementById('modalImage').src = photo.fullImageUrl;
-    document.getElementById('modalFilename').textContent = photo.fileName;
-    return;
-  }
+  if (photo.fullImageUrl) { document.getElementById('modalImage').src = photo.fullImageUrl; document.getElementById('modalFilename').textContent = photo.fileName; return; }
   document.getElementById('modalImage').src = photo.thumbnailUrl || '';
   document.getElementById('modalFilename').textContent = photo.fileName + '（読込中...）';
   callGasApi({ action: 'getPhotoThumbnail', fileId: photo.fileId })
     .then(function(dataUrl) {
-      if (dataUrl && currentModalPhotoIndex === index) {
-        photo.fullImageUrl = dataUrl;
-        document.getElementById('modalImage').src = dataUrl;
-        document.getElementById('modalFilename').textContent = photo.fileName;
-      }
-    }).catch(function() {
-      document.getElementById('modalFilename').textContent = photo.fileName;
-    });
+      if (dataUrl && currentModalPhotoIndex === index) { photo.fullImageUrl = dataUrl; document.getElementById('modalImage').src = dataUrl; document.getElementById('modalFilename').textContent = photo.fileName; }
+    }).catch(function() { document.getElementById('modalFilename').textContent = photo.fileName; });
 }
 
-function closePhotoModal() {
-  document.getElementById('photoModal').classList.remove('open');
-  currentModalPhotoIndex = -1;
-  currentPendingIndex    = -1;
-  modalMode              = '';
-}
+function closePhotoModal() { document.getElementById('photoModal').classList.remove('open'); currentModalPhotoIndex = -1; currentPendingIndex = -1; modalMode = ''; }
 
 function deleteCurrentPhoto() {
-  if (modalMode === 'pending') {
-    if (currentPendingIndex >= 0) {
-      deletePendingPhoto(currentPendingIndex);
-      closePhotoModal();
-    }
-    return;
-  }
+  if (modalMode === 'pending') { if (currentPendingIndex >= 0) { deletePendingPhoto(currentPendingIndex); closePhotoModal(); } return; }
   if (currentModalPhotoIndex < 0) return;
-  var photo = currentExistingPhotos[currentModalPhotoIndex];
-  if (!photo) return;
+  var photo = currentExistingPhotos[currentModalPhotoIndex]; if (!photo) return;
   if (!confirm('「' + photo.fileName + '」を削除しますか？')) return;
-  closePhotoModal();
-  executeDeletePhoto(currentModalPhotoIndex);
+  closePhotoModal(); executeDeletePhoto(currentModalPhotoIndex);
 }
 
 function confirmDeletePhoto(index) {
-  var photo = currentExistingPhotos[index];
-  if (!photo) return;
+  var photo = currentExistingPhotos[index]; if (!photo) return;
   if (!confirm('「' + photo.fileName + '」を削除しますか？')) return;
   executeDeletePhoto(index);
 }
 
 function executeDeletePhoto(index) {
-  var photo = currentExistingPhotos[index];
-  if (!photo) return;
+  var photo = currentExistingPhotos[index]; if (!photo) return;
   callGasApi({ action: 'deletePhoto', fileId: photo.fileId })
     .then(function(result) {
       if (result && result.success) {
@@ -1123,15 +772,9 @@ function executeDeletePhoto(index) {
         currentPhotoCount = Math.max(0, currentPhotoCount - 1);
         if (selectedItem) selectedItem.photoCount = currentPhotoCount;
         document.getElementById('spCount').textContent = '📷 保存済み: ' + currentPhotoCount + '枚';
-        loadExistingPhotos(
-          selectedItem._mode === 'set' ? 'set' : 'single',
-          selectedItem._mode === 'set' ? selectedItem.setId : selectedItem.janCode,
-          selectedItem.row
-        );
+        loadExistingPhotos(selectedItem._mode === 'set' ? 'set' : 'single', selectedItem._mode === 'set' ? selectedItem.setId : selectedItem.janCode, selectedItem.row);
         showUploadStatus('done', '🗑️ ' + result.fileName + ' を削除しました');
-      } else {
-        showUploadStatus('error', '❌ 削除エラー');
-      }
+      } else { showUploadStatus('error', '❌ 削除エラー'); }
     })
     .catch(function(err) { showUploadStatus('error', '❌ 通信エラー: ' + err.message); });
 }
@@ -1139,20 +782,8 @@ function executeDeletePhoto(index) {
 // ============================================================
 // ユーティリティ
 // ============================================================
-
-function showUploadStatus(type, message) {
-  var el = document.getElementById('uploadStatus');
-  el.className = 'upload-status ' + type;
-  el.textContent = message;
-  el.style.display = 'block';
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  var div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+function showUploadStatus(type, message) { var el = document.getElementById('uploadStatus'); el.className = 'upload-status ' + type; el.textContent = message; el.style.display = 'block'; }
+function escapeHtml(text) { if (!text) return ''; var div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 </script>
 </body>
 </html>
