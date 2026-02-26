@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!--
   ============================================================
-  撮影アプリ（GitHub Pages版 v2.7）
+  撮影アプリ（GitHub Pages版 v2.9）
 
-  【v2.2 → v2.7 変更点】
+  【v2.2 → v2.9 変更点】
   ・guideRatio を 0.85 → 0.6 に戻す（v1.7と同じ小さめクロップ）
   ・sy オフセット復活（- size * 0.22 で上方向にずらす）
   ・白飛び補正（applyImageCorrection）を削除
@@ -137,7 +137,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 <body>
 
 <div class="header">
-  <h1>📷 商品撮影 GitHub版 v2.7</h1>
+  <h1>📷 商品撮影 GitHub版 v2.9</h1>
   <div class="count-badge" id="headerCount">読込中...</div>
 </div>
 
@@ -252,7 +252,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 
 <script>
 // ============================================================
-// GitHub Pages版 撮影アプリ v2.7
+// GitHub Pages版 撮影アプリ v2.9
 // ============================================================
 
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxl4FebtOlBpN78nG7tFJhfrBxpyzPyC7eA7I9_DKfeBwGxdw2ptD9pFhi6GyGxFUlN/exec';
@@ -623,12 +623,15 @@ function takeShutterPhoto() {
 
   var vw = video.videoWidth;
   var vh = video.videoHeight;
-  var guideRatio = 0.6;
+  // guideRatio 0.9：広めにクロップして高解像度を確保
+  // ガイド枠のCSS(85vw)はそのままなので撮影の見た目は変わらない
+  var guideRatio = 0.9;
   var size = Math.min(vw, vh) * guideRatio;
   var sx   = (vw - size) / 2;
-  var sy   = (vh - size) / 2 - (size * 0.22);
+  var sy   = (vh - size) / 2;
   sy = Math.max(0, sy);
 
+  // 自然なサイズでcanvas出力（0.9なら1080p時で約972px → 十分な解像度）
   canvas.width  = size;
   canvas.height = size;
   var ctx = canvas.getContext('2d');
