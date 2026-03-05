@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   ============================================================
-  撮影アプリ（GitHub版 v2.22）
+  撮影アプリ（GitHub版 v2.23）
 
   【v2.2 → v2.22 変更点】
   ・guideRatio を 0.85 → 0.6 に戻す（v1.7と同じ小さめクロップ）
@@ -137,7 +137,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 <body>
 
 <div class="header">
-  <h1>撮影アプリ（GitHub版 v2.22）</h1>
+  <h1>撮影アプリ（GitHub版 v2.23）</h1>
   <div class="count-badge" id="headerCount">読込中...</div>
 </div>
 
@@ -252,7 +252,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragin
 
 <script>
 // ============================================================
-// GitHub版 撮影アプリ v2.22
+// GitHub版 撮影アプリ v2.23
 // ============================================================
 
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxl4FebtOlBpN78nG7tFJhfrBxpyzPyC7eA7I9_DKfeBwGxdw2ptD9pFhi6GyGxFUlN/exec';
@@ -277,15 +277,36 @@ var currentPendingIndex    = -1;
 // GAS API
 // ============================================================
 function callGasApi(params) {
+  // アップロード系は50秒、それ以外は15秒でタイムアウト
+  var timeoutMs = (params.action === 'uploadPhoto' || params.action === 'uploadSetPhoto')
+    ? 50000
+    : 15000;
+
+  var controller = new AbortController();
+  var timeoutId  = setTimeout(function() {
+    controller.abort();
+  }, timeoutMs);
+
   return fetch(GAS_API_URL, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(params)
+    body:    JSON.stringify(params),
+    signal:  controller.signal
   })
-  .then(function(res) { return res.json(); })
+  .then(function(res) {
+    clearTimeout(timeoutId);
+    return res.json();
+  })
   .then(function(json) {
     if (!json.success) throw new Error(json.error || 'APIエラー');
     return json.data;
+  })
+  .catch(function(err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('通信がタイムアウトしました。もう一度お試しください。');
+    }
+    throw err;
   });
 }
 
